@@ -1,0 +1,459 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r echo=F, warning=F, message=F}
+library(tidyverse)
+library(lubridate)
+
+source("MVI_config_and_helpers.R")
+
+options(dplyr.summarise.inform = FALSE)
+```
+
+```{r message=F}
+countries <- list.files(RAW_DATA_PATH) # Get list of countries in the Sampling Weighting Folder
+
+var_mapping <- read_excel(HELPER_FILE_PATH, sheet = "Variable_Info") # Variable naming info
+
+country_codes <- read_excel(HELPER_FILE_PATH, sheet = "Country_Info") # Country and language codes
+
+# Load in all raw data and join into a single dataframe
+MVI_Sample <- map(countries, load_raw_data) %>% 
+  reduce(full_join) %>% 
+  mutate(across(c("Tenure", "Total_OD_Spend_USD"), as.numeric),
+         NA_Cell_Number = as.numeric(Cell_Number))
+```
+## Checking for unique ID Duplicates
+```{r}
+dups_within_country_code <- MVI_Sample %>% 
+  group_by(NA_Country_Code, Unique_Record_Identifier15) %>% 
+  filter(n() > 1)
+
+dups_across_country_code <- MVI_Sample[duplicated(MVI_Sample$Unique_Record_Identifier15),]
+
+
+if (nrow(dups_within_country_code) > 0) {
+  warning("Duplicate Unique Record ID's Found within country codes")
+  dups_within_country_code$Unique_Record_Identifier15 %>% unique() %>% print()
+} else {
+  message("SUCCESS: No duplciate Unique Record ID's Found within country codes")
+}
+
+if (nrow(dups_across_country_code) > 0) {
+  warning("Duplicate Unique Record ID's Found across country codes")
+  dups_across_country_code$Unique_Record_Identifier15 %>% unique() %>% print()
+} else {
+  message("SUCCESS: No duplciate Unique Record ID's Found across country codes")
+}
+```
+
+
+# Calculating Bad Spend Observations before deduplication
+```{r Spend Checks Pre-Duplicates}
+count <- MVI_Sample %>%
+  group_by(NA_Country_Code,NA_Language_Index,Cell_Number,FileExt) %>% 
+  summarize(count = n())
+
+missing_spend <- MVI_Sample %>% filter(is.na(Total_OD_Spend_USD)) %>% 
+  select(Amex_Customer_ID, Unique_Record_Identifier15, NA_Country_Code, NA_Language_Index, FileExt, Cell_Number)
+
+missing_spend_table <- missing_spend %>% 
+  group_by(NA_Country_Code,NA_Language_Index,Cell_Number,FileExt) %>% 
+  summarize(noSpend = n())
+
+zero_spend <- MVI_Sample %>% filter(Total_OD_Spend_USD == 0) %>% 
+  select(Amex_Customer_ID, Unique_Record_Identifier15, NA_Country_Code, NA_Language_Index, FileExt, Cell_Number)
+
+zero_spend_table <- zero_spend %>% 
+  group_by(NA_Country_Code,NA_Language_Index,Cell_Number,FileExt) %>% 
+  summarize(zeroSpend = n())
+
+neg_spend <- MVI_Sample %>% filter(Total_OD_Spend_USD < 0) %>% 
+  select(Amex_Customer_ID, Unique_Record_Identifier15, NA_Country_Code, NA_Language_Index, FileExt, Cell_Number)
+
+neg_spend_table <- neg_spend %>% 
+  group_by(NA_Country_Code,NA_Language_Index,Cell_Number,FileExt) %>% 
+  summarize(NegativeSpend = n())
+
+bad_spends <- count %>% 
+  left_join(missing_spend_table) %>% 
+  left_join(zero_spend_table) %>% 
+  left_join(neg_spend_table) %>% 
+  arrange(NA_Country_Code, NA_Language_Index, FileExt)
+
+# no_obs %>% write_csv("../../../../2023/February/Qualtrics/Beck_Data/Info_for_Sample_Prep.csv")
+
+# Write to csv (MOST LIKELY WILL REMOVE)
+missing_spend %>% write_csv("../Diagnostic_Files/missing_spend_pre_dupe_removal.csv")
+zero_spend %>% write_csv("../Diagnostic_Files/zero_spend_pre_dupe_removal.csv")
+neg_spend %>% write_csv("../Diagnostic_Files/negative_spend_pre_dupe_removal.csv")
+```
+
+```{r}
+# Convert product codes with 2nd character as E and 1st and 3rd characters 0-9. We need to create a temp product code variable which recodes the 2rd character from E to # in order to prevent excel from changingt the product code to scientific notation. must recode the # back to E in excel;
+sci_no_to_fix <- MVI_Sample %>% 
+  distinct(NA_Country_Code, Product_Code) %>% 
+  filter(str_detect(Product_Code, "[0-9]E[0-9]"))
+
+MVI_Sample <- MVI_Sample %>% 
+  mutate(Product_Code = ifelse(str_detect(Product_Code, "[0-9]E[0-9]"),
+                               gsub("E", "#", Product_Code),
+                               Product_Code))
+```
+
+# STEP 2
+
+```{r}
+wrong_tenure_to_remove <- MVI_Sample %>% 
+  # 1 = "Australia, 39 = "New Zealand"
+  filter((Tenure < 6 & !NA_Country_Code %in% c(1,39)) |
+         (Tenure < 12 & NA_Country_Code %in% c(1,39)) |
+          is.na(Tenure))
+
+suppressMessages(MVI_Sample <- MVI_Sample %>% anti_join(wrong_tenure_to_remove))
+
+if (nrow(wrong_tenure_to_remove) > 0){
+  warning(f_str("There were {nrow(wrong_tenure_to_remove)} observations removed with erroneous tenure. These are found in the Data/Removed_Tenure.csv file"))
+  
+  wrong_tenure_to_remove %>% write_csv("Removed_Tenure.csv", na = "")
+} else{
+  message("No observations removed because of erroneous tenure")
+}
+
+# Store in frequency format to create Comparison Table
+wrong_tenure_freq <- wrong_tenure_to_remove %>% 
+  group_by(NA_Country_Code, Language, FileExt) %>% 
+  summarize(Tenure_Removed = n())
+```
+
+```{r}
+p_codes <- read_excel(HELPER_FILE_PATH,
+                  sheet = "PML_Info",
+                  skip = 1) %>%  # Skip over line that shows where the data is coming from in the PML
+mutate(NA_Cell_Number = Cell_Number %>% as.numeric(),
+       NA_Country_Code = NA_Country_Code %>% as.numeric() ) %>% 
+  select(-Country)
+
+
+# Remove two Thailand P_codes that are not used anymore
+p_codes <- p_codes %>% filter(Sample_Requested > 0) 
+```
+
+```{r}
+MVI_Sample <- MVI_Sample %>% left_join(p_codes)
+
+suppressMessages(cell_no_not_in_pml <- MVI_Sample %>% anti_join(p_codes) %>% 
+  distinct(NA_Country_Code, NA_Language_Index, Cell_Number, FileExt, NA_Cell_Number))
+
+suppressMessages(cell_no_not_in_data <- p_codes %>% anti_join(MVI_Sample) %>% 
+  distinct(NA_Country_Code, NA_Language_Index, Cell_Number, FileExt, NA_Cell_Number))
+
+if (nrow(cell_no_not_in_pml) > 0){
+  warning("There are Cell Numbers in the sample data not found in the PML")
+  cell_no_not_in_pml %>% print()
+} else{
+  message("SUCCESS: All Cell Numbers in the sample data found in the PML")
+}
+
+if (nrow(cell_no_not_in_data) > 0){
+  warning("There are Cell Numbers in the PML not found in the sample data")
+  cell_no_not_in_data %>% print()
+} else{
+  message("SUCCESS: All Cell Numbers in the PML found in the sample data")
+}
+```
+```{r}
+# Not sure what to do with this yet
+prod_code_table <-MVI_Sample %>% group_by(NA_Country_Code, NA_Product_Code) %>% 
+  summarize(Freq = n()) %>% 
+  mutate(NA_Product_Code = as.numeric(NA_Product_Code)) %>% 
+  spread(key = NA_Country_Code, value = Freq)
+```
+
+```{r}
+# Check values of desired variables
+
+var_checks <- MVI_Sample %>%
+  summarise(
+    NA_Country_Code =     all(NA_Country_Code %in% 1:50),
+    NA_Language_Index =   all(NA_Language_Index %in% 1:2),
+    NA_Cell_Number =      all(NA_Cell_Number %in% 1:25),
+    FileExt =             all(FileExt %in% c(NA, 1, 2)),
+    NA_Product_Code =     all(NA_Product_Code %in% 101:5099),
+    Product_Type =        all(Product_Type %in% c("RCP", "GRCC")),
+    COB =                 all(COB %in% c("Y", "N")),
+    Key_Prod =            all(Key_Prod %in% c(NA, "K")),
+    Fee =                 all(Fee %in% c("Y", "N")),
+    PML_Rewards_Program = all(PML_Rewards_Program %in% c("Y", "N")),
+    PML_CashBack =        all(PML_CashBack %in% c("Y", "N")),
+    PML_MR =              all(PML_MR %in% c("Y", "N")),
+    CV_CARD =             all(str_detect(CV_CARD, "^[\\w \\p{P}]+$")) # Can have any letters, digits, underscore, space, or punctuation mark
+  ) %>% 
+  gather(key = "Param", value = "Value") %>% 
+  filter(!Value)
+
+if (nrow(var_checks) > 0){
+  warning("Variable found with wrong values:")
+  var_checks$Param %>% message()
+} else{
+  message("SUCCESS: All variables are as expected")
+}
+
+```
+# Step 2b
+
+```{r message =F}
+pct_india <- read_csv(PCT_INDIA_PATH) %>% 
+  set_names(c('Cell_Number', 'NA_Country_Code', 'Product_Code', 'Formated_PCT_Code', 'Product_Color', 'COUNTRY'))
+pct_ex_india <- read_csv(PCT_EX_INDIA_PATH) %>% 
+  set_names(c('Cell_Number', 'NA_Country_Code', 'Product_Code', 'Formated_PCT_Code', 'Product_Color', 'COUNTRY', 'NA_Prd_Code'))
+```
+
+```{r }
+aif_pct <- pct_india %>% bind_rows(pct_ex_india) %>% 
+  mutate(Product_Code = substr(Product_Code, 1, 3))
+
+aif_pct_check <- MVI_Sample %>% 
+  select(Cell_Number, NA_Country_Code, NA_Product_Code, Product_Code) %>% 
+  mutate(NA_Product_Code = str_pad(NA_Product_Code, 4, pad = "0")) %>% 
+  arrange(NA_Country_Code, Cell_Number, Product_Code) %>% 
+  anti_join(aif_pct)
+
+pct_not_in_aif <- aif_pct_check %>% 
+  group_by(NA_Country_Code, Cell_Number, Product_Code) %>% 
+  summarize(count = n())
+
+if (nrow(aif_pct_check) > 0){
+  warning("There is PCT Code misalignment with AIF")
+  warning("Check the PCT_Codes_Not_in_AIF.csv ")
+  
+} else{
+  message("SUCCESS: No PCT Code misalignment with AIF")
+}
+
+# There's probably a better way to display this information than the current system
+
+aif_pct <- aif_pct %>% select(-Formated_PCT_Code) %>% 
+  group_by(NA_Country_Code, Cell_Number, NA_Prd_Code) %>% 
+  mutate(Product_Color = paste(unique(Product_Color), collapse = "/")) %>% 
+  ungroup() %>% 
+  group_by(NA_Country_Code, 
+           Cell_Number,
+           NA_Prd_Code,
+           Product_Color) %>% 
+  mutate(ord = paste0("PCT_Code_", row_number())) %>% 
+  ungroup() %>% 
+  spread(key = ord, value = Product_Code)
+
+pcts <- names(aif_pct)[str_detect(names(aif_pct), "PCT_Code_[0-9]")]
+
+
+aif_pct <- pct_not_in_aif %>% 
+  left_join(aif_pct) %>% 
+  select(NA_Country_Code, Cell_Number, 
+         PML = NA_Prd_Code,
+         Sample = Product_Code,
+         Product_Color, count,
+         gtools::mixedsort(pcts)) 
+
+aif_pct %>% write_csv("../Files_to_Send/PCT_not_in_AIF.csv")
+```
+```{r}
+# Remove erroneous PCT codes that Ops said to deleted 
+pct_codes_to_remove <- c()
+pct_codes_to_remove <- aif_pct$Sample
+
+MVI_Sample <- MVI_Sample %>% 
+  filter(!Product_Code %in% pct_codes_to_remove)
+```
+
+# Step 3
+
+```{r}
+amex_id_dups <- MVI_Sample %>% 
+  group_by(NA_Country_Code, Amex_Customer_ID) %>% 
+  filter(n() > 1) 
+
+n_dups <- n_distinct(amex_id_dups$Amex_Customer_ID)
+
+message(f_str("There are {n_dups} duplicate Amex Customer IDs, leading to {nrow(amex_id_dups) - n_dups} records being removed"))
+```
+```{r}
+amex_dups_summary <- amex_id_dups %>% 
+  freq_table(c("NA_Country_Code", "NA_Language_Index", "FileExt"))
+
+amex_dups_summary %>% write_csv("../Diagnostic_Files/Amex_ID_Dups_Summary.csv")
+amex_id_dups %>% write.csv('../Diagnostic_Files/Amex_ID_Dups.csv')
+```
+
+```{r}
+# Sort data by na_cell_number in order to keep the dup record with the higher priority - 
+  # in this case, the number closest to 1. i.e 1>2>3>4>5...;
+# If there are DUPes with the same cell number, just keep any one record - doesn't matter b/c spend is the same for all dupes;
+MVI_Sample_no_dups <-  MVI_Sample %>% 
+  arrange(NA_Country_Code, Cell_Number) %>% 
+  group_by(NA_Country_Code, Amex_Customer_ID) %>% 
+  filter(row_number() == 1) %>% ungroup()
+```
+
+```{r}
+rm(MVI_Sample)
+```
+
+# Step 4
+
+```{r}
+missing_language <- MVI_Sample_no_dups %>% 
+  freq_table(c('NA_Country_Code', 'Language', 'NA_Language_Code', "Language_Code"))
+```
+
+```{r}
+# Create new Variables
+
+# This has to be a little more complicated than just a join because of the "Else" cases for many of the variables
+
+MVI_Sample_new_vars <- MVI_Sample_no_dups
+
+
+cv_product_codes <- read_excel(HELPER_FILE_PATH, sheet = "CV_Product_Codes")
+
+cv_vars <- c("FYF", "WAIVER", "GOLD", "GREEN", "CENTURION", "PLATINUM", "COBRAND", "AIRLINE")
+
+var <- cv_vars[1]
+cv_vars_df <- cv_product_codes
+add_cv_var <- function(df, var, cv_vars_df){
+  product_var <- paste0("Product_", var)
+  cv_vars_df <- cv_vars_df %>% select(contains(var))
+  
+  if (var != "CENTURION"){ # We skip centurion because there is no "Comment" column in the sheet we are provided
+    comment_var <- paste0("Comment_", var)
+    cv_vars_df <- cv_vars_df %>% filter(is.na(!!ensym(comment_var)) | 
+                                          !str_detect(tolower(!!ensym(comment_var)), "removed"))
+  } 
+  
+  var_name <- names(cv_vars_df)[2]
+  cv_vars_df <- cv_vars_df %>% 
+    select("NA_Product_Code" = all_of(product_var), all_of(var_name)) %>% 
+    filter(!is.na(.[[2]])) %>% 
+    mutate(left_cond = if_else(tolower(NA_Product_Code) == "else", "TRUE", 
+                               paste0("as.numeric(NA_Product_Code) == ", as.numeric(NA_Product_Code))),
+           full_cond = paste0(left_cond, " ~ '", .[[2]], "'"))
+  
+  df %>% mutate("{var_name}" := case_when(!!!rlang::parse_exprs(cv_vars_df$full_cond)))
+}
+
+for (var in cv_vars) MVI_Sample_new_vars <- MVI_Sample_new_vars %>% add_cv_var(var, cv_product_codes)
+```
+
+```{r}
+MVI_Sample_new_vars <- MVI_Sample_new_vars %>% 
+  mutate(
+    CV_COBRAND_AIRLINES = case_when(
+    	NA_Product_Code %in% c('3556', '3570') ~ "",
+    	CV_COBRAND == "TRUE" && CV_AIRLINE == "TRUE" ~ "Yes",
+    	CV_COBRAND == "TRUE" && CV_AIRLINE == "FALSE" ~ "NO",
+    	TRUE ~ ""),
+    
+    CV_Key_Products = if_else(Key_Prod == "K", "Y", "N"),
+    
+    CV_Product_Type = case_when(
+      Product_Type == "RCP" && COB == "N" ~ "RCP",
+      Product_Type == "GRCC" && COB == "N" ~ "GRCC",
+      COB == "Y" ~ "Co-Brand"),
+    
+    CV_PREMIUM = CV_CENTURION == "TRUE" | CV_PLATINUM == "TRUE",
+    
+    CV_INTERVIEW_DATE = paste0(YEAR, MONTH),
+    
+    CV_REPORTING_NAME = CV_CARD,
+    
+    dYOB = as.Date(Date_of_Birth) %>% year(),
+    
+    generation = case_when(is.na(dYOB) | 
+                             dYOB < 1850 | 
+                             dYOB > (YEAR - 17) ~ "",
+                           dYOB <  1946 ~ "Silent: 1945 and prior",
+                           dYOB <  1965 ~ "Baby Boomers: 1946 - 1964",
+                           dYOB <  1980 ~ "Generation X: 1965 - 1979",
+                           dYOB <  1989 ~ "Older Millennials: 1980 - 1988",
+                           dYOB <  1997 ~ "Younger Millennials: 1989 - 1996",
+                           dYOB >= 1997 ~ "Generation Z: 1997 and later"),
+    email = paste0(Unique_Record_Identifier15, "@amexgabmsurvey.com")
+         )
+```
+
+```{r}
+rm(MVI_Sample_no_dups)
+```
+
+```{r}
+# Weighting Segments
+weighting_segments <- read_excel(HELPER_FILE_PATH, sheet = "Weighting_Segments") %>% 
+  mutate(pc_cond = paste0("NA_Product_Code == ", NA_Product_Code),
+         Tenure_Split = parse_number(Tenure_Split),
+         Spend_Split = parse_number(Spend_Split) * 1000)
+  
+MVI_Sample_ws <- MVI_Sample_new_vars %>% left_join(weighting_segments) %>% 
+  mutate(Tenure_Bucket = case_when(Tenure >= 6 & Tenure < Tenure_Split ~ "LT",
+                                   Tenure >= Tenure_Split ~ "HT",
+                                   TRUE ~ "XT"),
+         Spend_Bucket  = case_when(Total_OD_Spend_USD > 0 & Total_OD_Spend_USD < Spend_Split ~ "LS",
+                                   Total_OD_Spend_USD >= Spend_Split ~ "HS",
+                                   TRUE ~ "XS"),
+         Weighting_Segment = if_else(Spend_Bucket == "XS",
+                                     "MVINOSPEND",
+                                     paste0(MVIQ, WV_Weighting_Segment, Tenure_Bucket, Spend_Bucket))) %>% 
+  select(-c(Tenure_Bucket, Spend_Bucket, Bucket,), everything())
+
+```
+```{r}
+ws_table <- MVI_Sample_ws %>% group_by(Weighting_Segment, Tenure_Split, Spend_Split) %>%  
+  summarize(min_t = min(Tenure),
+            max_t = max(Tenure),
+            min_s = min(Total_OD_Spend_USD),
+            max_s = max(Total_OD_Spend_USD))
+```
+
+```{r}
+rm(MVI_Sample_new_vars)
+```
+
+# Card product misalignment
+
+```{r}
+cell_no_card_prds <- MVI_Sample_ws %>% 
+  select(NA_Country_Code, Cell_Number, Card_Product) %>% 
+  group_by(NA_Country_Code, Cell_Number) %>% 
+  distinct() %>% 
+  filter(n_distinct(Card_Product) > 1) %>% ungroup()
+
+
+# SEND TO OPS
+cell_no_card_prds %>%
+  group_split(NA_Country_Code, Cell_Number) %>%
+  lapply(function(x) rbind(x, setNames(rep(NA, ncol(x)), colnames(x)))) %>%
+  bind_rows() %>% write_csv("../Files_to_Send/Card_Product_Misalignment.csv")
+```
+
+
+```{r}
+
+```
+
+
+# CREATE COMPARISON TABLE
+
+
+```{r}
+MVI_Sample_new_vars$Key_Prod %>% unique()
+```
+
+```{r}
+MVI_Final <- a %>% 
+  select(
+    
+  )
+```
+
