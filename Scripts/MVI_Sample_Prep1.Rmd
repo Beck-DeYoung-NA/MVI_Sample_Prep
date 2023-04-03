@@ -20,22 +20,61 @@ var_mapping <- read_excel(HELPER_FILE_PATH, sheet = "Variable_Info") # Variable 
 country_codes <- read_excel(HELPER_FILE_PATH, sheet = "Country_Info") # Country and language codes
 
 # Load in all raw data and join into a single dataframe
-MVI_Sample <- map(countries, load_raw_data) %>% 
-  reduce(full_join) %>% 
-  mutate(across(c("Tenure", "Total_OD_Spend_USD"), as.numeric),
-         NA_Cell_Number = as.numeric(Cell_Number))
+# MVI_Sample <- map(countries, load_raw_data) %>% 
+#   reduce(full_join) %>% 
+#   mutate(across(c("Tenure", "Total_OD_Spend_USD"), as.numeric),
+#          NA_Cell_Number = as.numeric(Cell_Number))
+# 
+# save(MVI_Sample, file = "../Data/MVI_Sample_Combined.Rdata")
+
+load("../Data/MVI_Sample_Combined.Rdata")
 ```
-## Checking for unique ID Duplicates
+
 ```{r}
+PML <- read_excel(HELPER_FILE_PATH,
+                sheet = "PML_Info",
+                skip = 1) %>% 
+  mutate(across(c(NA_Country_Code, NA_Language_Index, FileExt), as.numeric),
+         NA_Cell_Number = as.numeric(Cell_Number)) %>% 
+  filter(Sample_Requested > 0) %>% # Remove two Thailand P_codes that are not used anymore
+  select(-Country)
+```
+
+
+```{r }
+# Set up Comparison Table
+cell_lvl_comp_table <- PML %>%
+  select(NA_Country_Code, NA_Language_Index, FileExt, Cell_Number, Sample_Requested)
+  
+cnt_by_cell <- MVI_Sample %>% 
+  group_by(NA_Country_Code, NA_Language_Index, Cell_Number, FileExt) %>% 
+  summarize(Sample_Recieved = n())
+
+cell_lvl_comp_table <- cell_lvl_comp_table %>% 
+  left_join(cnt_by_cell) %>% 
+  mutate(Diff = Sample_Recieved - Sample_Requested,
+         pct_diff = round(abs(Diff / Sample_Requested) * 100,2))
+
+comp_table <- cell_lvl_comp_table %>% ungroup() %>% 
+  group_by(NA_Country_Code, NA_Language_Index, FileExt) %>% 
+  summarize(Sample_Requested = sum(Sample_Requested, na.rm = T),
+            Sample_Recieved = sum(Sample_Recieved, na.rm = T)) %>% 
+   mutate(Diff = Sample_Recieved - Sample_Requested)
+```
+
+## Checking for unique ID Duplicates
+
+```{r}
+# Check for duplicates within and across country codes
 dups_within_country_code <- MVI_Sample %>% 
   group_by(NA_Country_Code, Unique_Record_Identifier15) %>% 
   filter(n() > 1)
 
 dups_across_country_code <- MVI_Sample[duplicated(MVI_Sample$Unique_Record_Identifier15),]
 
-
 if (nrow(dups_within_country_code) > 0) {
   warning("Duplicate Unique Record ID's Found within country codes")
+  warning("THIS IS A BIG DEAL AND MEANS SOMETHING IS WRONG WITH THE DATA")
   dups_within_country_code$Unique_Record_Identifier15 %>% unique() %>% print()
 } else {
   message("SUCCESS: No duplciate Unique Record ID's Found within country codes")
@@ -43,6 +82,7 @@ if (nrow(dups_within_country_code) > 0) {
 
 if (nrow(dups_across_country_code) > 0) {
   warning("Duplicate Unique Record ID's Found across country codes")
+  warning("THIS IS A BIG DEAL AND MEANS SOMETHING IS WRONG WITH THE DATA")
   dups_across_country_code$Unique_Record_Identifier15 %>% unique() %>% print()
 } else {
   message("SUCCESS: No duplciate Unique Record ID's Found across country codes")
@@ -51,37 +91,38 @@ if (nrow(dups_across_country_code) > 0) {
 
 
 # Calculating Bad Spend Observations before deduplication
+
 ```{r Spend Checks Pre-Duplicates}
-count <- MVI_Sample %>%
-  group_by(NA_Country_Code,NA_Language_Index,Cell_Number,FileExt) %>% 
-  summarize(count = n())
+# count <- MVI_Sample %>%
+#   group_by(NA_Country_Code,NA_Language_Index,Cell_Number,FileExt) %>% 
+#   summarize(count = n())
 
 missing_spend <- MVI_Sample %>% filter(is.na(Total_OD_Spend_USD)) %>% 
   select(Amex_Customer_ID, Unique_Record_Identifier15, NA_Country_Code, NA_Language_Index, FileExt, Cell_Number)
 
-missing_spend_table <- missing_spend %>% 
-  group_by(NA_Country_Code,NA_Language_Index,Cell_Number,FileExt) %>% 
-  summarize(noSpend = n())
+# missing_spend_table <- missing_spend %>% 
+#   group_by(NA_Country_Code,NA_Language_Index,Cell_Number,FileExt) %>% 
+#   summarize(noSpend = n())
 
 zero_spend <- MVI_Sample %>% filter(Total_OD_Spend_USD == 0) %>% 
   select(Amex_Customer_ID, Unique_Record_Identifier15, NA_Country_Code, NA_Language_Index, FileExt, Cell_Number)
 
-zero_spend_table <- zero_spend %>% 
-  group_by(NA_Country_Code,NA_Language_Index,Cell_Number,FileExt) %>% 
-  summarize(zeroSpend = n())
+# zero_spend_table <- zero_spend %>% 
+#   group_by(NA_Country_Code,NA_Language_Index,Cell_Number,FileExt) %>% 
+#   summarize(zeroSpend = n())
 
 neg_spend <- MVI_Sample %>% filter(Total_OD_Spend_USD < 0) %>% 
   select(Amex_Customer_ID, Unique_Record_Identifier15, NA_Country_Code, NA_Language_Index, FileExt, Cell_Number)
 
-neg_spend_table <- neg_spend %>% 
-  group_by(NA_Country_Code,NA_Language_Index,Cell_Number,FileExt) %>% 
-  summarize(NegativeSpend = n())
+# neg_spend_table <- neg_spend %>% 
+#   group_by(NA_Country_Code,NA_Language_Index,Cell_Number,FileExt) %>% 
+#   summarize(NegativeSpend = n())
 
-bad_spends <- count %>% 
-  left_join(missing_spend_table) %>% 
-  left_join(zero_spend_table) %>% 
-  left_join(neg_spend_table) %>% 
-  arrange(NA_Country_Code, NA_Language_Index, FileExt)
+# bad_spends <- count %>% 
+#   left_join(missing_spend_table) %>% 
+#   left_join(zero_spend_table) %>% 
+#   left_join(neg_spend_table) %>% 
+#   arrange(NA_Country_Code, NA_Language_Index, FileExt)
 
 # no_obs %>% write_csv("../../../../2023/February/Qualtrics/Beck_Data/Info_for_Sample_Prep.csv")
 
@@ -92,7 +133,30 @@ neg_spend %>% write_csv("../Diagnostic_Files/negative_spend_pre_dupe_removal.csv
 ```
 
 ```{r}
-# Convert product codes with 2nd character as E and 1st and 3rd characters 0-9. We need to create a temp product code variable which recodes the 2rd character from E to # in order to prevent excel from changingt the product code to scientific notation. must recode the # back to E in excel;
+# Bad spend summary table by cell number
+bad_spends <- MVI_Sample %>% 
+  group_by(NA_Country_Code, NA_Language_Index, Cell_Number, FileExt) %>% 
+  summarize(
+    noSpend = sum(is.na(Total_OD_Spend_USD)),
+    zeroSpend = sum(Total_OD_Spend_USD == 0, na.rm = T),
+    NegativeSpend = sum(Total_OD_Spend_USD < 0, na.rm = T)
+  ) %>% 
+  arrange(NA_Country_Code, NA_Language_Index, FileExt) #%>% 
+ # mutate(across(ends_with("Spend"), ~if_else(. == 0, NA_integer_, .)))
+
+#
+cell_lvl_comp_table <- cell_lvl_comp_table %>% 
+  left_join(bad_spends)
+
+# Bad Spend by country
+comp_table <- comp_table %>% 
+  left_join(bad_spends) %>% 
+  mutate(Diff = Sample_Recieved - Sample_Requested)
+```
+
+
+```{r}
+# Convert product codes with 2nd character as E and 1st and 3rd characters 0-9. We need to create a temp product code variable which recodes the 2rd character from E to # in order to prevent excel from changing the product code to scientific notation. must recode the # back to E in excel;
 sci_no_to_fix <- MVI_Sample %>% 
   distinct(NA_Country_Code, Product_Code) %>% 
   filter(str_detect(Product_Code, "[0-9]E[0-9]"))
@@ -103,7 +167,7 @@ MVI_Sample <- MVI_Sample %>%
                                Product_Code))
 ```
 
-# STEP 2
+# Tenure Check and Removal (Old step 2)
 
 ```{r}
 wrong_tenure_to_remove <- MVI_Sample %>% 
@@ -111,8 +175,9 @@ wrong_tenure_to_remove <- MVI_Sample %>%
   filter((Tenure < 6 & !NA_Country_Code %in% c(1,39)) |
          (Tenure < 12 & NA_Country_Code %in% c(1,39)) |
           is.na(Tenure))
-
-suppressMessages(MVI_Sample <- MVI_Sample %>% anti_join(wrong_tenure_to_remove))
+# Remove wrong tenures
+MVI_Sample <- MVI_Sample %>% 
+  filter(!Unique_Record_Identifier15 %in% wrong_tenure_to_remove$Unique_Record_Identifier15)
 
 if (nrow(wrong_tenure_to_remove) > 0){
   warning(f_str("There were {nrow(wrong_tenure_to_remove)} observations removed with erroneous tenure. These are found in the Data/Removed_Tenure.csv file"))
@@ -121,33 +186,26 @@ if (nrow(wrong_tenure_to_remove) > 0){
 } else{
   message("No observations removed because of erroneous tenure")
 }
+```
 
+```{r }
 # Store in frequency format to create Comparison Table
 wrong_tenure_freq <- wrong_tenure_to_remove %>% 
-  group_by(NA_Country_Code, Language, FileExt) %>% 
+  group_by(NA_Country_Code, NA_Language_Index, FileExt) %>% 
   summarize(Tenure_Removed = n())
+
+comp_table <- comp_table %>% 
+  left_join(wrong_tenure_freq)
 ```
 
-```{r}
-p_codes <- read_excel(HELPER_FILE_PATH,
-                  sheet = "PML_Info",
-                  skip = 1) %>%  # Skip over line that shows where the data is coming from in the PML
-mutate(NA_Cell_Number = Cell_Number %>% as.numeric(),
-       NA_Country_Code = NA_Country_Code %>% as.numeric() ) %>% 
-  select(-Country)
-
-
-# Remove two Thailand P_codes that are not used anymore
-p_codes <- p_codes %>% filter(Sample_Requested > 0) 
-```
 
 ```{r}
-MVI_Sample <- MVI_Sample %>% left_join(p_codes)
+MVI_Sample <- MVI_Sample %>% left_join(PML)
 
-suppressMessages(cell_no_not_in_pml <- MVI_Sample %>% anti_join(p_codes) %>% 
+suppressMessages(cell_no_not_in_pml <- MVI_Sample %>% anti_join(PML) %>% 
   distinct(NA_Country_Code, NA_Language_Index, Cell_Number, FileExt, NA_Cell_Number))
 
-suppressMessages(cell_no_not_in_data <- p_codes %>% anti_join(MVI_Sample) %>% 
+suppressMessages(cell_no_not_in_data <- PML %>% anti_join(MVI_Sample) %>% 
   distinct(NA_Country_Code, NA_Language_Index, Cell_Number, FileExt, NA_Cell_Number))
 
 if (nrow(cell_no_not_in_pml) > 0){
@@ -164,6 +222,7 @@ if (nrow(cell_no_not_in_data) > 0){
   message("SUCCESS: All Cell Numbers in the PML found in the sample data")
 }
 ```
+
 ```{r}
 # Not sure what to do with this yet
 prod_code_table <-MVI_Sample %>% group_by(NA_Country_Code, NA_Product_Code) %>% 
@@ -202,7 +261,7 @@ if (nrow(var_checks) > 0){
 }
 
 ```
-# Step 2b
+# Misaligned PCT Codes (Old Step 2b)
 
 ```{r message =F}
 pct_india <- read_csv(PCT_INDIA_PATH) %>% 
@@ -260,16 +319,40 @@ aif_pct <- pct_not_in_aif %>%
 
 aif_pct %>% write_csv("../Files_to_Send/PCT_not_in_AIF.csv")
 ```
+
 ```{r}
-# Remove erroneous PCT codes that Ops said to deleted 
+# Remove erroneous PCT codes that Ops said to delete 
 pct_codes_to_remove <- c()
-pct_codes_to_remove <- aif_pct$Sample
+pct_codes_to_remove <- aif_pct$Sample # Default to removing all of them
+
+n_before <- nrow(MVI_Sample)
 
 MVI_Sample <- MVI_Sample %>% 
   filter(!Product_Code %in% pct_codes_to_remove)
+
+message(f_str("There were {nrow(MVI_Sample) - n_before} samples removed with erroneous PCT Codes"))
 ```
 
-# Step 3
+## Remove people with wrong member since or DOB
+
+```{r}
+member_since_dob_flag <- MVI_Sample_ws %>% 
+  filter(Member_Since < 1920 | Member_Since > 2022 | 
+           dYOB < 1850 | dYOB > YEAR - 17)
+
+# Remove flagged observations
+MVI_Sample_ws <- MVI_Sample_ws %>% 
+  filter(!Unique_Record_Identifier15 %in% member_since_dob_flag$Unique_Record_Identifier15)
+
+
+ms_ct <- member_since_dob_flag %>% 
+  freq_table(c("NA_Country_Code", "NA_Language_Index", "FileExt"))
+
+member_since_dob_flag %>% write_csv("../Diagnostic_Files/Member_Since_DOB_flags.csv")
+```
+
+
+# Duplicate Removal (Old Step 3)
 
 ```{r}
 amex_id_dups <- MVI_Sample %>% 
@@ -388,6 +471,7 @@ MVI_Sample_new_vars <- MVI_Sample_new_vars %>%
 rm(MVI_Sample_no_dups)
 ```
 
+# Weighting Segments
 ```{r}
 # Weighting Segments
 weighting_segments <- read_excel(HELPER_FILE_PATH, sheet = "Weighting_Segments") %>% 
@@ -408,6 +492,7 @@ MVI_Sample_ws <- MVI_Sample_new_vars %>% left_join(weighting_segments) %>%
   select(-c(Tenure_Bucket, Spend_Bucket, Bucket,), everything())
 
 ```
+
 ```{r}
 ws_table <- MVI_Sample_ws %>% group_by(Weighting_Segment, Tenure_Split, Spend_Split) %>%  
   summarize(min_t = min(Tenure),
@@ -421,29 +506,69 @@ rm(MVI_Sample_new_vars)
 ```
 
 # Card product misalignment
+# ROCCO SAYS THIS NO LONGER NEEDS TO BE DONE BECAUSE CARD PRODUCTS ARE NOT SOURCED FROM CMS
 
 ```{r}
-cell_no_card_prds <- MVI_Sample_ws %>% 
-  select(NA_Country_Code, Cell_Number, Card_Product) %>% 
-  group_by(NA_Country_Code, Cell_Number) %>% 
-  distinct() %>% 
-  filter(n_distinct(Card_Product) > 1) %>% ungroup()
+# cell_no_card_prds <- MVI_Sample_ws %>% 
+#   select(NA_Country_Code, Cell_Number, Card_Product) %>% 
+#   group_by(NA_Country_Code, Cell_Number) %>% 
+#   distinct() %>% 
+#   filter(n_distinct(Card_Product) > 1) %>% ungroup()
+# 
+# 
+# # SEND TO OPS
+# cell_no_card_prds %>% 
+#   mutate(Comment = "") %>% 
+#   #The next few lines are to add blank rows under each group for ops to more easily see different groups
+#   group_split(NA_Country_Code, Cell_Number) %>%
+#   lapply(function(x) rbind(x, setNames(rep(NA, ncol(x)), colnames(x)))) %>%
+#   bind_rows() %>% 
+#   write_csv("../Files_to_Send/Card_Product_Misalignment.csv", na = "")
+```
 
+#### AFTER RECIEVING INSTRUCTIONS FROM OPS ABOUT HOW TO PROCEED WITH MISALIGNED CARD PRODUCTS, SAVE THE FILE IN THE `From_Ops` FOLDER.
+MAKE SURE THEIR COMMENTS ARE 'REMOVE' IF WE WANT IT REMOVED
+### Also not needed given above note
+```{r}
+# card_prd_instr <- "../From_Ops/Card_Product_Misalignment.csv"
+# if (file.exists(card_prd_instr)) {
+#   card_prd_instr_df <- read_csv(card_prd_instr) %>% 
+#     filter(tolower(Comment) == "remove")
+#   n_before <- nrow(MVI_Sample_ws)
+#   
+#   MVI_Sample_ws <- MVI_Sample_ws %>% 
+#     anti_join(card_prd_instr_df)
+#   
+#   message("There were {n_before - nrow(MVI_Sample_ws) samples removed with misaligned PCT codes}")
+# }
 
-# SEND TO OPS
-cell_no_card_prds %>%
-  group_split(NA_Country_Code, Cell_Number) %>%
-  lapply(function(x) rbind(x, setNames(rep(NA, ncol(x)), colnames(x)))) %>%
-  bind_rows() %>% write_csv("../Files_to_Send/Card_Product_Misalignment.csv")
+```
+
+```{r}
+# This should be moved farther up
+# Only FR-CAN is missing so it can be changed to 2
+MVI_Sample_ws <- MVI_Sample_ws %>% 
+  mutate(Language = if_else(is.na(Language) & Language_Code == "FR-CA", 
+                            "2", Language))
+
+missing_language <- MVI_Sample_ws %>% 
+  filter(is.na(Language)) %>% pull(Language_Code) %>% unique()
+
+if (length(missing_language) > 0){
+  warning(paste0("These Language codes have missing values: ",
+                 paste(missing_language, collapse = ", ")))
+}
 ```
 
 
-```{r}
-
-```
 
 
 # CREATE COMPARISON TABLE
+
+```{r}
+MVI_Sample_ws %>% 
+  freq_table(c('NA_Country_Code','NA_Language_Index','FileExt'))
+```
 
 
 ```{r}
@@ -456,4 +581,10 @@ MVI_Final <- a %>%
     
   )
 ```
+
+test <- cell_lvl_comp_table %>% 
+  select(-Cell_Number, - pct_diff) %>% 
+  group_by(NA_Country_Code, NA_Language_Index, FileExt) %>% 
+  summarize(across(.fns = ~sum(., na.rm = T)))
+  
 

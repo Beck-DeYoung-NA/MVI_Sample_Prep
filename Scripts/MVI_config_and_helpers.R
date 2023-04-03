@@ -145,3 +145,11 @@ group_by_summary_table <- function(df, group_var, sum_var){
     mutate_if(is.numeric, round, digits=2) %>% 
     return()
 }
+
+# 
+
+comparison_table <- function(df, varv){
+  df %>% 
+    group_by(NA_Country_Code, NA_Language_Index, FilExt) %>% 
+    summarize(across(vars, n))
+}
