@@ -2,6 +2,7 @@ library(tidyverse)
 library(glue)
 library(rvest)
 library(readxl)
+library(kableExtra)
 
 # ------------------------------------------------------------------------------
 MONTH <- "03"
@@ -10,6 +11,7 @@ MVIQ <- "MVIQ123"
 
 # ------------------------------------------------------------------------------
 HELPER_FILE_PATH <- "../MVI_Sample_Prep_Helper.xlsx"
+MARKET_FILES_PATH <- "../All_Sample_Files/Market_Files"
 
 RAW_DATA_PATH <- "\\\\pm1/33-626/Quantitative/Sampling-Weighting/Files from CMS/Q1"
 
@@ -18,9 +20,9 @@ PCT_EX_INDIA_PATH <- "../RawData/Final MVI Q1.23 PCT List Ex INDIA_cleaned1.csv"
 WEIGHTS_PATH <- "../RawData/Amex MVI + SBS 2023 Q1 Weighting Framework - 02-07-23.xlsx"
 
 # ------------------------------------------------------------------------------
+# Lets you embed variables into strings like python f-strings
 
 f_str <- function(str) glue(str) %>% as.character()
-
 
 # ------------------------------------------------------------------------------
 
@@ -28,10 +30,10 @@ load_raw_data <- function(country){
   "
   Function to extract the information for each country dataset and load it in
   "
-  glue("Loading {country}") %>% print()
+  paste0("Loading: ", country) %>% print()
   
   # Get the list of files in the country sub-folder
-  country_files <- glue("{RAW_DATA_PATH}/{country}") %>% list.files()
+  country_files <- file.path(RAW_DATA_PATH, country) %>% list.files()
   
   # Get the country info from the sample prep file
   na_country_info <- country_codes[country_codes$`Country_Language` == country,]
@@ -40,7 +42,7 @@ load_raw_data <- function(country){
   layout_file <- country_files[str_detect(country_files, "deliveryfilelayout.html")]
   
   # Read in the html layout file and extract all tables
-  html_file_tables <- "{RAW_DATA_PATH}/{country}/{layout_file}" %>% glue() %>%
+  html_file_tables <- file.path(RAW_DATA_PATH, country, layout_file) %>%
     read_html() %>% html_nodes("table") 
   
   # Contains filename and number of expected records
@@ -57,7 +59,7 @@ load_raw_data <- function(country){
   if(sum(is.na(layout_table$New_Fieldname)) > 0){
     stop(paste(' There are new variables in the raw data not listed in the Sample Prep Helper Excel sheet "Variable Info". Please add them before rerunning this code:', 
                paste(layout_table$`Field Name`[is.na(layout_table$New_Fieldname)], collapse = " | ")))
-  }
+    }
   
   # Load in the data
   tbl <- "{RAW_DATA_PATH}/{country}/{data_filename}" %>% glue() %>% 
@@ -75,28 +77,34 @@ load_raw_data <- function(country){
            Language_Code = na_country_info$Language_Code,
            FileExt = na_country_info$FileExt,
            NA_Language_Code = na_country_info$NA_Language_Code,
-           CV_ICS_Region = na_country_info$CV_ICS_Region) %>% 
+           CV_ICS_Region = na_country_info$CV_ICS_Region,
+           Filename = na_country_info$Filename %>% f_str()) %>% 
     return()
 }
 
 # ------------------------------------------------------------------------------
 add_cv_var <- function(df, var, cv_vars_df){
-  print("Current Variable Adding:", var)
+  print(f_str("Adding: {var}"))
   product_var <- paste0("Product_", var)
   cv_vars_df <- cv_vars_df %>% select(contains(var))
   
   if (var != "CENTURION"){ # We skip centurion because there is no "Comment" column in the sheet we are provided
     comment_var <- paste0("Comment_", var)
-    cv_vars_df <- cv_vars_df %>% filter(is.na(!!ensym(comment_var)) | !str_detect(tolower(!!ensym(comment_var)), "removed")) 
+    cv_vars_df <- cv_vars_df %>% filter(is.na(!!ensym(comment_var)) | 
+                                          !str_detect(tolower(!!ensym(comment_var)), "removed"))
   } 
   
-  var_name <- names(cv_vars_df)[2]
+  var_name <- names(cv_vars_df)[2] # The file is structured 'Product_VAR' 'VAR_NAME' 'Comment_VAR'
   cv_vars_df <- cv_vars_df %>% 
     select("NA_Product_Code" = all_of(product_var), all_of(var_name)) %>% 
-    filter(!is.na(.[[2]])) %>% 
+    filter(!is.na(.[[2]])) %>% # Remove where the VAR_NAME is not blank because this removes blank lines and unneeded comments
+    # We turn this dataframe into a case_when statement to apply the desired value to VAR_NAME
     mutate(left_cond = if_else(tolower(NA_Product_Code) == "else", "TRUE", 
-                               paste0("as.numeric(NA_Product_Code) == ", as.numeric(NA_Product_Code))),
+                               paste0("as.numeric(NA_Product_Code) == ", as.numeric(NA_Product_Code))), # numeric PC because NA_Product_Code has no leading zeros in the CMS data
            full_cond = paste0(left_cond, " ~ '", .[[2]], "'"))
+  
+  # As an example the full_cond variable basically looks like "as.numeric(NA_Product_Code) == 199 ~ 'Y'" or
+                                                            # "TRUE ~ N" for the else case
   
   df %>% mutate("{var_name}" := case_when(!!!rlang::parse_exprs(cv_vars_df$full_cond)))
 }
@@ -130,26 +138,4 @@ freq_table <- function(df, var, caption=NULL){
   if (!is.null(caption)) make_nice_table(tab, caption) # print table
   
   tab %>% return() # Return the table
-}
-
-# ------------------------------------------------------------------------------
-group_by_summary_table <- function(df, group_var, sum_var){
-  # Creates a nice summary table of one variable by another variable
-  df %>% group_by(!!as.name(group_var)) %>% 
-    summarize(n=n(),
-              mean = mean(!!as.name(sum_var)),
-              sd = sd(!!as.name(sum_var)),
-              min = min(!!as.name(sum_var)),
-              max = max(!!as.name(sum_var)),
-    ) %>% 
-    mutate_if(is.numeric, round, digits=2) %>% 
-    return()
-}
-
-# 
-
-comparison_table <- function(df, varv){
-  df %>% 
-    group_by(NA_Country_Code, NA_Language_Index, FilExt) %>% 
-    summarize(across(vars, n))
 }

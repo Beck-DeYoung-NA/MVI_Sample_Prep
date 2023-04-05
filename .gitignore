@@ -5,3 +5,4 @@
 *.csv
 *.xlsx
 *.Rdata
+!MVI_Sample_Prep_Helper.xlsx
