@@ -9,6 +9,9 @@ MONTH <- "03"
 YEAR <- 2023
 MVIQ <- "MVIQ123"
 
+# If any new CVs are added, this needs to be updated
+CV_VARS <- c("PML_FYF", "PML_WAIVER", "RCP_GOLD", "RCP_GREEN", "CENTURION", "PLATINUM", "COBRAND", "AIRLINE")
+
 # ------------------------------------------------------------------------------
 HELPER_FILE_PATH <- "../MVI_Sample_Prep_Helper.xlsx"
 MARKET_FILES_PATH <- "../All_Sample_Files/Market_Files"
@@ -86,6 +89,7 @@ load_raw_data <- function(country){
 add_cv_var <- function(df, var, cv_vars_df){
   print(f_str("Adding: {var}"))
   product_var <- paste0("Product_", var)
+  var_name <- paste0("CV_", var)
   cv_vars_df <- cv_vars_df %>% select(contains(var))
   
   if (var != "CENTURION"){ # We skip centurion because there is no "Comment" column in the sheet we are provided
@@ -94,14 +98,13 @@ add_cv_var <- function(df, var, cv_vars_df){
                                           !str_detect(tolower(!!ensym(comment_var)), "removed"))
   } 
   
-  var_name <- names(cv_vars_df)[2] # The file is structured 'Product_VAR' 'VAR_NAME' 'Comment_VAR'
   cv_vars_df <- cv_vars_df %>% 
     select("NA_Product_Code" = all_of(product_var), all_of(var_name)) %>% 
-    filter(!is.na(.[[2]])) %>% # Remove where the VAR_NAME is not blank because this removes blank lines and unneeded comments
+    filter(!is.na(!!ensym(var_name))) %>% # Remove where the VAR_NAME is not blank because this removes blank lines and unneeded comments
     # We turn this dataframe into a case_when statement to apply the desired value to VAR_NAME
     mutate(left_cond = if_else(tolower(NA_Product_Code) == "else", "TRUE", 
                                paste0("as.numeric(NA_Product_Code) == ", as.numeric(NA_Product_Code))), # numeric PC because NA_Product_Code has no leading zeros in the CMS data
-           full_cond = paste0(left_cond, " ~ '", .[[2]], "'"))
+           full_cond = paste0(left_cond, " ~ '", !!ensym(var_name), "'"))
   
   # As an example the full_cond variable basically looks like "as.numeric(NA_Product_Code) == 199 ~ 'Y'" or
                                                             # "TRUE ~ N" for the else case

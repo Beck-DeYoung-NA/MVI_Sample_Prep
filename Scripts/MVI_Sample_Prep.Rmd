@@ -2,7 +2,22 @@
 title: "MVI Sample Prep"
 output: html_notebook
 ---
+### Preparatory Steps
 
+Consult `ReadMe.md` for instructions on how to configure the inputs
+properly before running this script
+
+
+Remember to update file paths and variables in `MVI_Config_and_helpers.R`
+
+### Notes
+
+-   **This code will output warnings and messages.** The warnings indicate
+    a check is not met. These will be printouts with "Warning:" before
+    them. If a check is passed, a message will be printed with "SUCCESS:"
+    before it. If any warnings are printed, figure out why and report if
+    the warning says to.
+    
 ```{r warning=F, message=F}
 library(tidyverse)
 library(lubridate)
@@ -12,7 +27,7 @@ library(janitor)
 source("MVI_config_and_helpers.R")
 
 options(dplyr.summarise.inform = FALSE,
-        scipen = 9999) # Get rid of scientific notation
+        scipen = 99999) # Get rid of scientific notation
 ```
 
 ### Loading in Raw Data
@@ -20,22 +35,26 @@ options(dplyr.summarise.inform = FALSE,
 ```{r Load in the data, message=F}
 countries <- list.files(RAW_DATA_PATH) # Get list of countries in the Sampling Weighting Folder
 
-var_mapping <- read_excel(HELPER_FILE_PATH, sheet = "Variable_Info") # Variable naming info
+var_mapping <- read_excel(HELPER_FILE_PATH, sheet = "Variable_Info") %>% # Variable naming info
+  set_names(c("OG_Field", "New_Fieldname",	"Remove"))
 
-country_codes <- read_excel(HELPER_FILE_PATH, sheet = "Country_Info") # Country and language codes
+  
+country_codes <- read_excel(HELPER_FILE_PATH, sheet = "Country_Info") %>% # Country and language codes
+  set_names(c("NA_Country_Code",	"Country",	"Country_Language",	"NA_Language_Index",
+              "FileExt",	"Language_Code",	"NA_Language_Code",	"CV_ICS_Region",	"Filename"))
 
 # Load in all raw data and join into a single dataframe
 # COMMENT OUT LINES UNTIL AFTER save(...) ONCE THIS HAS ALREADY BEEN RUN ONCE
 
-# MVI_Sample <- map(countries, load_raw_data) %>%
-#   reduce(full_join) %>%
-#   mutate(across(c("Tenure", "Total_OD_Spend_USD"), as.numeric),
-#          NA_Cell_Number = as.numeric(Cell_Number))
-# 
-# save(MVI_Sample, file = f_str("../Data/MVI_Sample_Combined_{MVIQ}.Rdata"))
+MVI_Sample <- map(countries, load_raw_data) %>%
+  reduce(full_join) %>%
+  mutate(across(c("Tenure", "Total_OD_Spend_USD"), as.numeric),
+         NA_Cell_Number = as.numeric(Cell_Number))
+
+save(MVI_Sample, file = f_str("../Data/MVI_Sample_Combined_{MVIQ}.Rdata"))
 
 # UNCOMMENT THIS IF YOU HAVE ALREADY CREATED MVI_SAMPLE BEFORE
-load(f_str("../Data/MVI_Sample_Combined_{MVIQ}.Rdata"))
+# load(f_str("../Data/MVI_Sample_Combined_{MVIQ}.Rdata"))
 ```
 
 ```{r Load in pml, message = FALSE}
@@ -449,11 +468,8 @@ missing_language <- MVI_Sample_no_dups %>%
 
 cv_product_codes <- read_excel(HELPER_FILE_PATH, sheet = "CV_Product_Codes")
 
-# If any new CVs are added, this needs to be updated
-cv_vars <- c("FYF", "WAIVER", "GOLD", "GREEN", "CENTURION", "PLATINUM", "COBRAND", "AIRLINE")
-
 MVI_Sample_new_vars <- MVI_Sample_no_dups
-for (var in cv_vars) MVI_Sample_new_vars <- MVI_Sample_new_vars %>% add_cv_var(var, cv_product_codes)
+for (var in CV_VARS) MVI_Sample_new_vars <- MVI_Sample_new_vars %>% add_cv_var(var, cv_product_codes)
 ```
 
 ```{r Create new variables 2}
@@ -465,7 +481,7 @@ MVI_Sample_new_vars <- MVI_Sample_new_vars %>%
     	CV_COBRAND == "TRUE" & CV_AIRLINE == "FALSE" ~ "No",
     	TRUE ~ ""),
     
-    CV_Key_Products = if_else(Key_Prod == "K", "Y", "N"),
+    CV_Key_Products = if_else(is.na(Key_Prod), "N", "Y"), # This was originally Key_Prod == "K" but it doesn't account for missing, and there's no other values anyway
     
     CV_Product_Type = case_when(
       Product_Type == "RCP" & COB == "N" ~ "RCP",
@@ -478,6 +494,7 @@ MVI_Sample_new_vars <- MVI_Sample_new_vars %>%
     
     CV_REPORTING_NAME = CV_CARD,
     
+    Date_of_Birth = str_replace_all(Date_of_Birth, "-", "/"), # Some date are different format
     dYOB = as.Date(Date_of_Birth) %>% year(),
     
     GENERATION = case_when(is.na(dYOB) | 
@@ -502,8 +519,10 @@ dob_flag <- MVI_Sample_new_vars %>%
   filter(dYOB < 1850 | dYOB > YEAR - 17)
 
 # Remove flagged observations
-MVI_Sample_ws <- MVI_Sample_new_vars %>% 
-  filter(!Unique_Record_Identifier15 %in% c(member_since_flag$Unique_Record_Identifier15, dob_flag$Unique_Record_Identifier15))
+MVI_Sample_new_vars <- MVI_Sample_new_vars %>% 
+  filter(!Unique_Record_Identifier15 %in% 
+           c(member_since_flag$Unique_Record_Identifier15, 
+             dob_flag$Unique_Record_Identifier15))
 
 
 ms_ct <- member_since_flag  %>% 
@@ -520,7 +539,7 @@ member_since_flag %>%
 ```
 
 ```{r Final Sample Counts}
-final_counts <- MVI_Sample_ws %>% 
+final_counts <- MVI_Sample_new_vars %>% 
   group_by(NA_Country_Code, NA_Language_Index, FileExt) %>% 
   summarize(Final_Sample = n())
 ```
@@ -580,6 +599,24 @@ MVI_Sample_ws <- MVI_Sample_ws %>%
                                Product_Code))
 ```
 
+### Reformatting to match what Qualtrics is expecting
+
+```{r}
+# Change all date columns to "M/D/YYYY" format
+MVI_Sample_ws <- MVI_Sample_ws %>% 
+  mutate(across(c("Establishment_Date"), ~str_replace_all(., "-", "/")), # Some date are different format
+         across(c("Establishment_Date"), ~format(as.Date(.x), format = "%m/%d/%Y")),
+         # We need to remove leading zeros in months and days
+         across(c("Establishment_Date"), ~gsub("^0", "", gsub("/0", "/", .))),
+         # Make Customer ID 15 digits
+         Amex_Customer_ID = str_pad(Amex_Customer_ID, 15, "left", "0"),
+         #MR_Member_ID = str_pad(MR_Member_ID, 12, "left", "0")
+         NA_Product_Code = str_pad(NA_Product_Code, 4, "left", "0"),
+         SUBJECT_LINE_INSERTION = gsub("\u00A0", "", SUBJECT_LINE_INSERTION, fixed = TRUE) %>% trimws() # Remove non-breaking spaces
+         )
+```
+
+
 ### Creating Final Sample
 
 ```{r Create Final Sample}
@@ -607,8 +644,8 @@ MVI_final <- MVI_final_postals %>%
          Amex_Customer_ID,
          Avg_Overseas_Domestic_ROCs,
          MR_Points,               
-         Total_OD_Spend_LOC = Total_OD_Spend_Local_Currency,
-         Total_OD_Spend_USD,
+         Tot_Overseas_Domest_Spend_LOC = Total_OD_Spend_Local_Currency,
+         Tot_Overseas_Domest_Spend_USD = Total_OD_Spend_USD,
          UID = Unique_Record_Identifier15,
          COUNTRY = Country,
          NAXION_PRODUCT_CODE = NA_Product_Code,
@@ -616,8 +653,8 @@ MVI_final <- MVI_final_postals %>%
          CV_Product_Type,
          CV_Key_Products,
          Fee,
-         PML_Rewards,
-         PML_CashBack,
+         CV_PML_Rewards = PML_Rewards,
+         CV_PML_CashBack = PML_CashBack,
          CV_PML_FYF,
          CV_PML_WAIVER,
          CV_PML_MR = PML_MR,
@@ -630,7 +667,7 @@ MVI_final <- MVI_final_postals %>%
          CV_RCP_GREEN,
          CV_INTERVIEW_DATE,
          LANGUAGE_CODE = Language_Code,
-         WV_WEIGHTING_SEGMENT = WV_Weighting_Segment,
+         WV_WEIGHTING_SEGMENT = Weighting_Segment,
          SUBJECT_LINE_INSERTION = Subject_Line_Insertion, 
          GENERATION,
          # Remove after checking

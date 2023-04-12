@@ -36,8 +36,69 @@
          - *`CV_AIRLINE`*
          - *`COB`*
       -  **Market_Files** - Market Level Output Files
-   -  **From_OPs** - Any return files OPs sends. E.g., an edited version of *Misaligned_Product_Codes.csv* containing which codes we can delete
+   -  **From_OPs** - Any return files OPs sends. E.g., an edited version of *Misaligned_Product_Codes.csv* containing which codes we can delete.
+      -  *MVI Qualtrics Instruction.xlsm* - This workbork is provided by OPs. It provides variable naming information, and values for created values. When recieved, it should be saved into this folder. 
    -  **RawData** - Raw Data from OPs
-      -  *Weighting Framework*
-      -  *PCT List Ex India*
-      -  *PCT List India*
+      -  *Weighting Framework* - Contains tenure and spend splits for weighting segments
+      -  *PCT List Ex India* - AIF without India
+      -  *PCT List India* - AIF of India: India does not have PCT codes
+
+
+# Prepartory Steps to do each Quarter
+## Creating MVI_Sample_Prep_Helper_QUARTER.xlsx
+
+After pulling from Github, there is a file called `MVI_Sample_Prep_Helper_Templaye.xlsx` in your repository. Rename this to `MVI_Sample_Prep_Helper_QUARTER.xlsx`.
+
+The `MVI_Sample_Prep_Helper_QUARTER.xlsx` contains 6 sheets :
+- *MVI_Sample* : PML for the given quarter
+- *PML_Info* : Pulls important information in a nice format from the PML using formulas to be used in the R scripts
+- *Country_Info* : Information at the market level such as Country_Code, FileExt, Language_Index, and desired Filename
+- *Variable_Info* : Variable renaming rules from Instruction file
+- *CV_Product_Codes* : Values for created variables based on product code
+- *Weighting_Segments* : Criteria for Tenure and Spend splits for each weighting segment
+
+1. *MVI_Sample*
+
+Simply copy and paste the PML for this quarter into this sheet.
+
+2. *PML_Info*
+This sheet is automatically created once the PML is put into MVI_Sample using formulas. There only needs to be a change to this sheet if new products are added. 
+- **Note**: If there are product changes in the PML, there are two columns that are manually added that need to be modified. These are the *NA_Language_Index* and the *FileExt* columns. 
+-  I made two versions
+   -  One is the original one Rocco made, which requires us to just input the filled in lines from the PML and there's no blanks.
+   -  The other has the first 500 lines in the PML file, which is then filtered in R. In this case, there are blanks in the helper file, but you do not need to add any new lines when new products are added. Although, adjusting *NA_Language_Index* and *FileExt* may be a little awkward at times.
+
+1. *Country_Info*
+
+This sheet shouldn't need to be updated often. Only if a new market is added or if the desired Filenames form has changed. The Filenames come from the file `QUARTER YEAR MVI File Names for COE.xlsx` from OPs. Just quickly verify these are correct. 
+
+| NA_Country_Code | Country          | Country_Language | NA_Language_Index | FileExt | Language_Code | NA_Language_Code | CV_ICS_Region | Filename                                         |
+|:---------------:|:-----------------:|:-----------------:|:-----------------:|:-------:|:-------------:|:----------------:|:-------------:|:------------------------------------------------:|
+|       1         |     Australia     |     Australia     |        1          |         |     EN-AU     |      3081        |      ANZ       |    AmexGABMMVISurvey_AUS_ENAU_{MONTH}{YEAR}.csv    |
+|       2         |       Canada       |  Canada English   |        1          |         |     EN-CA     |      4105        |     Canada     |    AmexGABMMVISurvey_CAN_ENCA_{MONTH}{YEAR}.csv    |
+|       2         |       Canada       |   Canada French   |        2          |         |     FR-CA     |      3084        |     Canada     |    AmexGABMMVISurvey_CAN_FRCA_{MONTH}{YEAR}.csv    |
+|       4         |        Italy       |        Italy       |        1          |         |       IT       |       16          |      EMEA       |    AmexGABMMVISurvey_ITA_IT_{MONTH}{YEAR}.csv     |
+
+
+4. *Variable_Info*
+
+This sheet is provided by OPs. 
+ - Copy the first two columns (`Original Field Name` & `Name`) from sheet *Instructions_DATE* in `MVI Qualtrics Instruction.xlsm` located in the ***From_OPs*** folder into this sheet. 
+ - Try not to override the column headers. R sets them back up, but try to keep them as they were in the template.
+ - Removed the rows that say "Created Variables"
+ - I currently have a column that has remove vs created because I was thinking about automating the final variable selection, but it's a little complicated, so we can ignore that column for now.
+
+5. *CV_Product_Codes*
+
+This sheet is provided by OPs. 
+
+- Copy the inforation from sheet *CV_Product_Code Table* in `MVI Qualtrics Instruction.xlsm` located in the **From_OPs** folder into this sheet. 
+- <span style="color:red">DO NOT OVERWRITE THE COLUMN HEADERS IN THE TEMPLATE</span>.
+- If new created variables are added, make the new headers in the same format as the others.
+  - Product_VARIABLE, VARIABLE, Comment_VARIABLE
+  - **YOU ALSO NEED TO UPDATE THE CODE**
+
+1. *Weighting_Segments*
+
+This is copied directly from the *MVI QUARTER'YEAR Table* sheet of the `Weighting Framework` excel sheet. 
+-  Try not to override the column headers. R sets them back up, but try to keep them as they were in the template.
