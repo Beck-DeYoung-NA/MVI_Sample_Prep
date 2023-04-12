@@ -6,3 +6,5 @@
 *.xlsx
 *.Rdata
 !MVI_Sample_Prep_Helper.xlsx
+*Sensitive Files Moved.txt
+*.csv.url
