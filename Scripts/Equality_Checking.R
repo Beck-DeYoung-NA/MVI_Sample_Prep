@@ -65,3 +65,11 @@ y2 <- y %>% filter(!SUBJECT_LINE_INSERTION %in% x$SUBJECT_LINE_INSERTION)
 test <- aif_pct %>% left_join(PML) %>% 
   distinct(NA_Country_Code, Cell_Number, Card_ProductAIF, Product_Color) %>% 
   arrange(NA_Country_Code, Cell_Number)
+
+
+
+test <- PML %>% filter(str_detect(Subject_Line_Insertion, "\u00A0"))
+
+test3 <- gsub("[\u00A0]+$", "", test$Subject_Line_Insertion)
+
+test3[str_detect(test3, "\u00A0")]

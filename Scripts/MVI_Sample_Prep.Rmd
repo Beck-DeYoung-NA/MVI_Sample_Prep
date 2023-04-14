@@ -46,15 +46,15 @@ country_codes <- read_excel(HELPER_FILE_PATH, sheet = "Country_Info") %>% # Coun
 # Load in all raw data and join into a single dataframe
 # COMMENT OUT LINES UNTIL AFTER save(...) ONCE THIS HAS ALREADY BEEN RUN ONCE
 
-MVI_Sample <- map(countries, load_raw_data) %>%
-  reduce(full_join) %>%
-  mutate(across(c("Tenure", "Total_OD_Spend_USD"), as.numeric),
-         NA_Cell_Number = as.numeric(Cell_Number))
-
-save(MVI_Sample, file = f_str("../Data/MVI_Sample_Combined_{MVIQ}.Rdata"))
+# MVI_Sample <- map(countries, load_raw_data) %>%
+#   reduce(full_join) %>%
+#   mutate(across(c("Tenure", "Total_OD_Spend_USD"), as.numeric),
+#          NA_Cell_Number = as.numeric(Cell_Number))
+# 
+# save(MVI_Sample, file = f_str("../Data/MVI_Sample_Combined_{MVIQ}.Rdata"))
 
 # UNCOMMENT THIS IF YOU HAVE ALREADY CREATED MVI_SAMPLE BEFORE
-# load(f_str("../Data/MVI_Sample_Combined_{MVIQ}.Rdata"))
+load(f_str("../Data/MVI_Sample_Combined_{MVIQ}.Rdata"))
 ```
 
 ```{r Load in pml, message = FALSE}
@@ -553,22 +553,53 @@ rm(MVI_Sample_no_dups)
 
 ```{r Weighting Segments}
 # Weighting Segments
-weighting_segments <- read_excel(HELPER_FILE_PATH, sheet = "Weighting_Segments") %>% 
-  mutate(pc_cond = paste0("NA_Product_Code == ", NA_Product_Code),
+# The weighting segment sheet doesn't include XS or XT, 
+# So to make it easier, I'm just having one line for each segment with it's respective tenure and spend splits
+# Then we create the 6 conditions for the various options given these splits
+weighting_segments <- read_excel(HELPER_FILE_PATH, sheet = "Weighting_Segments") %>%
+  filter(str_detect(WGT_Bucket, "MVI")) %>% # Removes SBS weights if they weren't removed in the helper file
+  filter(str_detect(Tenure_Split, "\\+") & str_detect(Spend_Split, "\\+")) %>% # HTHS
+  # Turn rows with multiple NA_Product_Codes into their own row to allow for joining with MVI data
+  separate_rows(NA_Product_Code, sep = ", ") %>% 
+  mutate(NA_Product_Code = trimws(NA_Product_Code), # just in case there were extra spaces
+         pc_cond = paste0("NA_Product_Code == ", NA_Product_Code),
+         # Turn {QUARTER}-9{SEGMENT} into {QUARTER}{SEGMENT}
+         WV_Weighting_Segment = str_remove(WGT_Bucket, "-[0-9]"), 
          Tenure_Split = parse_number(Tenure_Split),
-         Spend_Split = parse_number(Spend_Split) * 1000)
+         Spend_Split = parse_number(Spend_Split) * 1000,
+         )
   
 MVI_Sample_ws <- MVI_Sample_new_vars %>% left_join(weighting_segments) %>% 
   mutate(Tenure_Bucket = case_when(Tenure >= 6 & Tenure < Tenure_Split ~ "LT",
                                    Tenure >= Tenure_Split ~ "HT",
-                                   TRUE ~ "XT"),
+                                   TRUE ~ "XT"), # This can't occur as Tenure <6 is removed above
          Spend_Bucket  = case_when(Total_OD_Spend_USD > 0 & Total_OD_Spend_USD < Spend_Split ~ "LS",
                                    Total_OD_Spend_USD >= Spend_Split ~ "HS",
                                    TRUE ~ "XS"),
          Weighting_Segment = if_else(Spend_Bucket == "XS",
                                      "MVINOSPEND",
-                                     paste0(MVIQ, WV_Weighting_Segment, Tenure_Bucket, Spend_Bucket))) %>% 
-  select(-c(Tenure_Bucket, Spend_Bucket, Bucket,), everything())
+                                     paste0(WV_Weighting_Segment, Tenure_Bucket, Spend_Bucket))) %>% 
+  select(-ends_with("Bucket"), everything())
+```
+This was performing the weighting segmentation based on a sheet called MVI Q1'23 Table. But this was an extra step previously, so instead of making these sheet, we use the original weighting sheet and perform a few more steps in R above
+```{r Weighting Segments2}
+# Weighting Segments
+# weighting_segments <- read_excel(HELPER_FILE_PATH, sheet = "Weighting_Segments") %>% 
+#   mutate(pc_cond = paste0("NA_Product_Code == ", NA_Product_Code),
+#          Tenure_Split = parse_number(Tenure_Split),
+#          Spend_Split = parse_number(Spend_Split) * 1000)
+#   
+# MVI_Sample_ws <- MVI_Sample_new_vars %>% left_join(weighting_segments) %>% 
+#   mutate(Tenure_Bucket = case_when(Tenure >= 6 & Tenure < Tenure_Split ~ "LT",
+#                                    Tenure >= Tenure_Split ~ "HT",
+#                                    TRUE ~ "XT"),
+#          Spend_Bucket  = case_when(Total_OD_Spend_USD > 0 & Total_OD_Spend_USD < Spend_Split ~ "LS",
+#                                    Total_OD_Spend_USD >= Spend_Split ~ "HS",
+#                                    TRUE ~ "XS"),
+#          Weighting_Segment = if_else(Spend_Bucket == "XS",
+#                                      "MVINOSPEND",
+#                                      paste0(MVIQ, WV_Weighting_Segment, Tenure_Bucket, Spend_Bucket))) %>% 
+#   select(-c(Tenure_Bucket, Spend_Bucket, Bucket), everything())
 ```
 
 ```{r}
@@ -612,7 +643,7 @@ MVI_Sample_ws <- MVI_Sample_ws %>%
          Amex_Customer_ID = str_pad(Amex_Customer_ID, 15, "left", "0"),
          #MR_Member_ID = str_pad(MR_Member_ID, 12, "left", "0")
          NA_Product_Code = str_pad(NA_Product_Code, 4, "left", "0"),
-         SUBJECT_LINE_INSERTION = gsub("\u00A0", "", SUBJECT_LINE_INSERTION, fixed = TRUE) %>% trimws() # Remove non-breaking spaces
+         SUBJECT_LINE_INSERTION =  gsub("[\u00A0\\h\\v]+$", "", SUBJECT_LINE_INSERTION) # Remove non-breaking spaces
          )
 ```
 
@@ -670,13 +701,13 @@ MVI_final <- MVI_final_postals %>%
          WV_WEIGHTING_SEGMENT = Weighting_Segment,
          SUBJECT_LINE_INSERTION = Subject_Line_Insertion, 
          GENERATION,
+         
          # Remove after checking
          FileExt,
          Date_of_Birth,
          CV_COBRAND,
          CV_AIRLINE,
          COB,  
-         #SUBJECT_LINE_INSERTION # This is in here twice in the SAS code
          Filename
          )
 ```
