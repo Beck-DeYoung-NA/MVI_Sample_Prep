@@ -14,15 +14,16 @@
     -   **Files_to_send** : Contains datasets that should be sent to operations.
         -   *Cell_Level_Summary_MVIQ123.csv* - Contains Requested and Recieved counts at the cell level, as well as missing, zero, and negative spend counts prior to deduplication. 
         -   *Market_Level_Summary_MVIQ123.csv* - Summary of everything that happened during sample prep at the market level including counts of everything that was removed. This is the `Comparison` table from the old sample prep. 
+        -   *Member_Since_DOB_flags_QUARTER.csv* : Customers removed for falling under the following categories:
+            -  1850 < *`YOB`* > YEAR-17
+            -  1920 < *`Member_Since`* > YEAR (YEAR - 1 if Quarter 1)  
         -   *PCT_not_in_AIF_MVIQ123.csv* - PCT codes not found in the AIF. Ops needs to tell us whether this was an error and to delete or to keep them.
         -   *Postal_codes_MVIQ123.csv* - Postal Codes for Bob Crown
+        -   *Removed_Tenure_Summary_QUARTER.csv* - Market level summary of people removed due to early tenure
         -   *Spend_Summary_MVIQ123.csv* - Descriptive statistics of Spend USD and Spend LOC prior to deduplication
     -   **Diagnostic_Files** : Contains datasets with information about what we did to the raw data such as spend flags and duplicate removals. These are not proactively sent to OPs but are available if need be.
         -  *Amex_ID_Dups_QUARTER.csv* - All *Amex_Customer_ID* duplicates at the customer level
         -  *Amex_ID_Dups_Summary_QUARTER.csv* : Frequencies of *Amex_Customer_ID* duplicates by Market
-        -  *Member_Since_DOB_flags_QUARTER.csv* : Customers removed for falling under the following categories:
-            -  1850 < *`YOB`* > YEAR-17
-            -  1920 < *`Member_Since`* > YEAR - 1  
         -  *Missing_Spend_QUARTER.csv* - Customers with missing USD spend
         -  *Negative_Spend_QUARTER.csv* - Customers with negative USD spend
         -  *Removed_Tenure_QUARTER.csv* - Customers with too early tenure that are removed
@@ -38,13 +39,15 @@
       -  **Market_Files** - Market Level Output Files
    -  **From_OPs** - Any return files OPs sends. E.g., an edited version of *Misaligned_Product_Codes.csv* containing which codes we can delete.
       -  *MVI Qualtrics Instruction.xlsm* - This workbork is provided by OPs. It provides variable naming information, and values for created values. When recieved, it should be saved into this folder. 
-   -  **RawData** - Raw Data from OPs
+      -  *Product Master List.xlsx* - The most up to date PML
+   -  **RawData** - Raw Data from OPs. Save the following files here when they are recieved
       -  *Weighting Framework* - Contains tenure and spend splits for weighting segments
       -  *PCT List Ex India* - AIF without India
       -  *PCT List India* - AIF of India: India does not have PCT codes
 
 
 # Prepartory Steps to do each Quarter
+
 ## Creating MVI_Sample_Prep_Helper_QUARTER.xlsx
 
 After pulling from Github, there is a file called `MVI_Sample_Prep_Helper_Templaye.xlsx` in your repository. Rename this to `MVI_Sample_Prep_Helper_QUARTER.xlsx`.
@@ -54,6 +57,7 @@ The `MVI_Sample_Prep_Helper_QUARTER.xlsx` contains 6 sheets :
 - *PML_Info* : Pulls important information in a nice format from the PML using formulas to be used in the R scripts
 - *Country_Info* : Information at the market level such as Country_Code, FileExt, Language_Index, and desired Filename
 - *Variable_Info* : Variable renaming rules from Instruction file
+- *CV_Reporting_Names* : Proper reporting names for products
 - *CV_Product_Codes* : Values for created variables based on product code
 - *Weighting_Segments* : Criteria for Tenure and Spend splits for each weighting segment
 
@@ -68,7 +72,7 @@ This sheet is automatically created once the PML is put into MVI_Sample using fo
    -  One is the original one Rocco made, which requires us to just input the filled in lines from the PML and there's no blanks.
    -  The other has the first 500 lines in the PML file, which is then filtered in R. In this case, there are blanks in the helper file, but you do not need to add any new lines when new products are added. Although, adjusting *NA_Language_Index* and *FileExt* may be a little awkward at times.
 
-1. *Country_Info*
+3. *Country_Info*
 
 This sheet shouldn't need to be updated often. Only if a new market is added or if the desired Filenames form has changed. The Filenames come from the file `QUARTER YEAR MVI File Names for COE.xlsx` from OPs. Just quickly verify these are correct. 
 
@@ -80,7 +84,7 @@ This sheet shouldn't need to be updated often. Only if a new market is added or 
 |       4         |        Italy       |        Italy       |        1          |         |       IT       |       16          |      EMEA       |    AmexGABMMVISurvey_ITA_IT_{MONTH}{YEAR}.csv     |
 
 
-4. *Variable_Info*
+5. *Variable_Info*
 
 This sheet is provided by OPs. 
  - Copy the first two columns (`Original Field Name` & `Name`) from sheet *Instructions_DATE* in `MVI Qualtrics Instruction.xlsm` located in the ***From_OPs*** folder into this sheet. 
@@ -88,15 +92,22 @@ This sheet is provided by OPs.
  - Removed the rows that say "Created Variables"
  - I currently have a column that has remove vs created because I was thinking about automating the final variable selection, but it's a little complicated, so we can ignore that column for now.
 
-5. *CV_Product_Codes*
+5. *CV_Reporting_Names*
+
+I don't know exactly where this information comes from originally **NEED TO UPDATE**
+
+6. *CV_Product_Codes*
 
 This sheet is provided by OPs. 
 
 - Copy the inforation from sheet *CV_Product_Code Table* in `MVI Qualtrics Instruction.xlsm` located in the **From_OPs** folder into this sheet. 
 - <span style="color:red">DO NOT OVERWRITE THE COLUMN HEADERS IN THE TEMPLATE</span>.
+- There's no need to copy over *CV_COBRAND_AIRLINES*, but it will just be ignored if you do.
+  - We prefer to calculate *CV_COBRAND_AIRLINES* ourselves based on *CV_COBRAND* and *CV_AIRLINES*
 - If new created variables are added, make the new headers in the same format as the others.
   - Product_VARIABLE, VARIABLE, Comment_VARIABLE
   - **YOU ALSO NEED TO UPDATE THE CODE**
+    - Specifically the variable *CV_VARS* near the start of `MVI_config_and_helpers.R`
 
 1. *Weighting_Segments*
 

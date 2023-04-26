@@ -1,8 +1,12 @@
 library(tidyverse)
 library(glue)
 library(rvest)
-library(readxl)
 library(kableExtra)
+
+# ------------------------------------------------------------------------------
+# Lets you embed variables into strings like python f-strings
+
+f_str <- function(str) glue(str) %>% as.character()
 
 # ------------------------------------------------------------------------------
 MONTH <- "03"
@@ -20,12 +24,6 @@ RAW_DATA_PATH <- "\\\\pm1/33-626/Quantitative/Sampling-Weighting/Files from CMS/
 
 PCT_INDIA_PATH <- "../RawData/Final MVI Q1.23 PCT List INDIA.csv"
 PCT_EX_INDIA_PATH <- "../RawData/Final MVI Q1.23 PCT List Ex INDIA_cleaned1.csv"
-WEIGHTS_PATH <- "../RawData/Amex MVI + SBS 2023 Q1 Weighting Framework - 02-07-23.xlsx"
-
-# ------------------------------------------------------------------------------
-# Lets you embed variables into strings like python f-strings
-
-f_str <- function(str) glue(str) %>% as.character()
 
 # ------------------------------------------------------------------------------
 
@@ -116,14 +114,16 @@ add_cv_var <- function(df, var, cv_vars_df){
 
 # Make a nice looking table for the html output
 make_nice_table <- function(tab, caption){
-  
+  if (knitr::is_html_output()){ # Only print the table nicely if we are knitting
   knitr::kable(tab, format = "html",
                caption = paste("<center><strong>", caption, "</strong></center>"),
                escape = FALSE,
                booktabs = TRUE) %>% 
     kable_styling(bootstrap_options = "striped",
                   full_width = F, position = "center") %>% print()
-  
+  } else {
+    print(tab)
+  }
   tab %>% return() # Return the original table to avoid printing NULL in output
 }
 
