@@ -1,7 +1,9 @@
-library(tidyverse)
-library(glue)
-library(rvest)
-library(kableExtra)
+if (!require("pacman")) install.packages("pacman")
+# Loads in necessary packages, and installs them if you don't have them installed
+pacman::p_load("tidyverse",
+               "glue",
+               "rvest",
+               "kableExtra")
 
 # ------------------------------------------------------------------------------
 # Lets you embed variables into strings like python f-strings
@@ -22,8 +24,8 @@ MARKET_FILES_PATH <- "../All_Sample_Files/Market_Files"
 
 RAW_DATA_PATH <- "\\\\pm1/33-626/Quantitative/Sampling-Weighting/Files from CMS/Q1"
 
-PCT_INDIA_PATH <- "../RawData/Final MVI Q1.23 PCT List INDIA.csv"
-PCT_EX_INDIA_PATH <- "../RawData/Final MVI Q1.23 PCT List Ex INDIA_cleaned1.csv"
+PCT_INDIA_PATH <- "../Supporting_Files/Final MVI Q1.23 PCT List INDIA.csv"
+PCT_EX_INDIA_PATH <- "../Supporting_Files/Final MVI Q1.23 PCT List Ex INDIA_cleaned1.csv"
 
 # ------------------------------------------------------------------------------
 
@@ -65,7 +67,7 @@ load_raw_data <- function(country){
   # Load in the data
   tbl <- "{RAW_DATA_PATH}/{country}/{data_filename}" %>% glue() %>% 
     read_fwf(col_positions = fwf_widths(layout_table$Length),
-             col_types = cols(.default = 'c')) %>% # Default every import to character for now to not mess up formats 
+             col_types = cols(.default = 'c')) %>% # Default every import to character to not mess up formats 
     set_names(layout_table$New_Fieldname)
   
   if (nrow(tbl) != data_file$`Number of Records`) warning("Number of records not consistent")
@@ -85,7 +87,11 @@ load_raw_data <- function(country){
 
 # ------------------------------------------------------------------------------
 add_cv_var <- function(df, var, cv_vars_df){
+  "
+  Adds a created variable to the dataset based on the CV_Prods_Table provided in the instructions excel file
+  "
   print(f_str("Adding: {var}"))
+  # Get the column names for the variable and its info
   product_var <- paste0("Product_", var)
   var_name <- paste0("CV_", var)
   cv_vars_df <- cv_vars_df %>% select(contains(var))
@@ -107,7 +113,7 @@ add_cv_var <- function(df, var, cv_vars_df){
   # As an example the full_cond variable basically looks like "as.numeric(NA_Product_Code) == 199 ~ 'Y'" or
                                                             # "TRUE ~ N" for the else case
   
-  df %>% mutate("{var_name}" := case_when(!!!rlang::parse_exprs(cv_vars_df$full_cond)))
+  df %>% mutate("{var_name}" := case_when(!!!rlang::parse_exprs(cv_vars_df$full_cond))) %>% return()
 }
 
 # ------------------------------------------------------------------------------
