@@ -99,13 +99,13 @@ Simply copy and paste the PML for this quarter into this sheet. You can override
 2. *PML_Info*
 This sheet is automatically created once the PML is put into MVI_Sample using formulas. There only needs to be a change to this sheet if new products are added. 
 - **Note**: If there are product changes in the PML, there are two columns that are manually added that need to be modified. These are the *NA_Language_Index* and the *FileExt* columns. 
--  I made two versions
+-  I made two versions. The code uses the first one, the second is redundant at the moment. 
    -  One is the original one Rocco made, which requires us to just input the filled in lines from the PML and there's no blanks.
    -  The other has the first 500 lines in the PML file, which is then filtered in R. In this case, there are blanks in the helper file, but you do not need to add any new lines when new products are added. Although, adjusting *NA_Language_Index* and *FileExt* may be a little awkward at times.
 
 3. *Country_Info*
 
-This sheet shouldn't need to be updated often. Only if a new market is added or if the desired Filenames form has changed. The Filenames come from the file `QUARTER YEAR MVI File Names for COE.xlsx` from OPs. Just quickly verify these are correct. 
+This sheet shouldn't need to be updated often. Only if a new market is added or if the desired Filenames form has changed. The Filenames come from the file `QUARTER YEAR MVI File Names for COE.xlsx` from OPs. The pattern for names has not changed since I began working on MVI, but just quickly verify these are correct.
 
 | NA_Country_Code | Country          | Country_Language | NA_Language_Index | FileExt | Language_Code | NA_Language_Code | CV_ICS_Region | Filename                                         |
 |:---------------:|:-----------------:|:-----------------:|:-----------------:|:-------:|:-------------:|:----------------:|:-------------:|:------------------------------------------------:|
@@ -120,11 +120,10 @@ This sheet shouldn't need to be updated often. Only if a new market is added or 
 This sheet is provided by OPs. 
  - Copy the first two columns (`Original Field Name` & `Name`) from sheet *Instructions_DATE* in `MVI Qualtrics Instruction.xlsm` located in the ***From_OPs*** folder into this sheet. 
  - Try not to override the column headers. R sets them back up, but try to keep them as they were in the template.
- - Removed the rows that say "Created Variables"
 
 1. *CV_Reporting_Names*
 
-This has previously been located in a file in the subdirectory: `Sample-Weighting/Sample File Append` of the main project directory (where the raw data comes from).
+This has previously been located in a file in the subdirectory: `Sample-Weighting/Sample File Append` of the main project directory (where the raw data comes from). Just copy and paste it in. 
 
 1. *CV_Product_Codes*
 
