@@ -81,7 +81,9 @@ g { color: Green }
 
 ## Creating MVI_Sample_Prep_Helper_QUARTER.xlsx
 
-After pulling from Github, there is a file called `MVI_Sample_Prep_Helper_Template.xlsx` in your repository. Rename this to `MVI_Sample_Prep_Helper_QUARTER.xlsx`.
+After pulling from Github, there is a file called `MVI_Sample_Prep_Helper_Template.xlsx` in your repository. Rename this to `MVI_Sample_Prep_Helper_QUARTER.xlsx`. 
+
+If you need a refresher on how to pull from github, consult the doucmentation for [USCS Sample Prep](https://github.com/Beck-DeYoung-NA/USCS-Sample-Prep/). The link for cloning is `https://github.com/Beck-DeYoung-NA/MVI_Sample_Prep.git`.
 
 The `MVI_Sample_Prep_Helper_QUARTER.xlsx` contains 6 sheets :
 - *MVI_Sample* : PML for the given quarter
