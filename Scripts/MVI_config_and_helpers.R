@@ -38,6 +38,9 @@ load_raw_data <- function(country){
   # Get the list of files in the country sub-folder
   country_files <- file.path(RAW_DATA_PATH, country) %>% list.files()
   
+  # Let us know if the country file hasnt been recieved without breaking the code
+  if (length(country_files) == 0){print("Not Recieved Yet"); return(data.frame(Country = NA))}
+  
   # Get the country info from the sample prep file
   na_country_info <- country_codes[country_codes$`Country_Language` == country,]
   
@@ -78,7 +81,7 @@ load_raw_data <- function(country){
            NA_Country_Code = na_country_info$NA_Country_Code,
            NA_Language_Index = na_country_info$NA_Language_Index,
            Language_Code = na_country_info$Language_Code,
-           FileExt = na_country_info$FileExt,
+           File_Ext = na_country_info$File_Ext,
            NA_Language_Code = na_country_info$NA_Language_Code,
            CV_ICS_Region = na_country_info$CV_ICS_Region,
            Filename = na_country_info$Filename %>% f_str()) %>% 

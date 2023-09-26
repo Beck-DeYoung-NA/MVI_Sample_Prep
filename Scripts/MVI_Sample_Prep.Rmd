@@ -886,7 +886,7 @@ once this is done, copy the csv and xlsx into the `\\pm1\33-626\Quantitative\Sam
     -	\\pm1\33-626\Quantitative\Sampling-Weighting\All Sample Files\Q3MVI_Final_Checking_MVIQ323.xlsx
     -	Here’s the csv: \\pm1\33-626\Quantitative\Sampling-Weighting\All Sample Files\Q3\MVI_Final_Checking_MVIQ323.csv
     -	Note there are a couple extra variables at the end to help with checking. These are removed later.
-             # FileExt,
+             # File_Ext,
              # Date_of_Birth,
              # CV_COBRAND,
              # CV_AIRLINE,
