@@ -38,7 +38,7 @@ load_raw_data <- function(country){
   # Get the list of files in the country sub-folder
   country_files <- file.path(RAW_DATA_PATH, country) %>% list.files()
   
-  # Let us know if the country file hasnt been recieved without breaking the code
+  # Let us know if the country file hasnt been received without breaking the code
   if (length(country_files) == 0){print("Not Recieved Yet"); return(data.frame(Country = NA))}
   
   # Get the country info from the sample prep file
@@ -94,6 +94,7 @@ add_cv_var <- function(df, var, cv_vars_df){
   Adds a created variable to the dataset based on the CV_Prods_Table provided in the instructions excel file
   "
   print(f_str("Adding: {var}"))
+  
   # Get the column names for the variable and its info
   product_var <- paste0("Product_", var)
   var_name <- paste0("CV_", var)
@@ -116,6 +117,7 @@ add_cv_var <- function(df, var, cv_vars_df){
   # As an example the full_cond variable basically looks like "as.numeric(NA_Product_Code) == 199 ~ 'Y'" or
                                                             # "TRUE ~ N" for the else case
   
+  # Apply the condition to the MVI sample dataframe to add the correct values for each variable
   df %>% mutate("{var_name}" := case_when(!!!rlang::parse_exprs(cv_vars_df$full_cond))) %>% return()
 }
 
