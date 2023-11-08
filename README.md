@@ -67,10 +67,6 @@
                 PCT Codes from the PML that do not line up with the AIF
                 (based on country code, cell number, and NA product
                 code)
-
-            ```{=html}
-            <!-- -->
-            ```
                 -   Ops needs to tell us whether this was an error and
                     to delete or to keep them.
 
