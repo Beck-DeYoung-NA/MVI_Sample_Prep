@@ -45,11 +45,11 @@ Diagnostic_WB <- createWorkbook() # Create Diagnostic workbook
 countries <- list.files(RAW_DATA_PATH) # Get list of countries in the Sampling Weighting Folder
 
 var_mapping <- read_excel(HELPER_FILE_PATH, sheet = "Variable_Info") %>% # Variable naming info
-  set_names(c("OG_Field", "New_Fieldname",	"Remove"))
+  set_names(c("OG_Field", "New_Fieldname"))
 
   
 country_codes <- read_excel(HELPER_FILE_PATH, sheet = "Country_Info") %>% # Country and language codes
-  set_names(c("NA_Country_Code",	"Country",	"Country_Language",	"NA_Language_Index",
+  set_names(c("NA_Country_Code",	"Country",	"Country_Name_PML",	"NA_Language_Index",
               "File_Ext",	"Language_Code",	"NA_Language_Code",	"CV_ICS_Region",	"Filename")) 
 
 # Load in all raw data and join into a single dataframe
@@ -381,23 +381,17 @@ if (length(missing_language) > 0){
 Identifying PCT Codes that are misaligned with the AIF files
 
 ```{r Load in PCT, message =F}
-# Load in pct lists
-pct_india <- read_csv(PCT_INDIA_PATH, col_types = 'cdcccc') %>% 
-  set_names(c('Cell_Number', 'NA_Country_Code', 'Product_Code', 'Formatted_PCT_Code', 'Card_ProductAIF', 'COUNTRY'))
-
-pct_ex_india <- read_csv(PCT_EX_INDIA_PATH, col_types = 'cdcccccc') %>% 
+# Load in pct list
+aif_pct <- read_csv(PCT_LIST_PATH, col_types = 'cccccccc') %>% 
   set_names(c('Cell_Number', 'NA_Country_Code', 'Product_Code', 'Formatted_PCT_Code', 
-              'Card_ProductAIF', 'COUNTRY', 'NA_Prd_Code'))
-```
-
-```{r Misaligned PCTs}
-# Combine the India and non-India lists and then reformat some variables
-aif_pct <- pct_india %>% bind_rows(pct_ex_india) %>% 
+              'Card_ProductAIF', 'COUNTRY', 'NA_Prd_Code'))  %>% 
   mutate(Formatted_PCT_Code = substr(Formatted_PCT_Code, 1, 3), # Some PCT Codes come in badly formatted with a bunch of extra characters
          Cell_Number = str_pad(Cell_Number, 2, pad = "0"),
          NA_Prd_Code = str_pad(NA_Prd_Code, 4, pad = "0")) %>% 
-  distinct() # Remove duplicates
+  distinct()
+```
 
+```{r Misaligned PCTs}
 # We first check misaligned NA Product Codes
 aif_prod_codes <- aif_pct %>% distinct(Cell_Number, NA_Country_Code, NA_Prd_Code)
 
@@ -520,7 +514,7 @@ But, instead of attaching files, copy the file to the `\\pm1\33-626\Quantitative
 #### **When PM gets back on which to remove, update the next chunk**
 
 
-  - If they say you can remove all samples then just procede with running the next chunk
+  - If they say you can remove all samples then just proceed with running the next chunk
   
   
   - If they want you to update the values, then follow these steps

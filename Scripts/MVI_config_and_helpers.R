@@ -22,10 +22,9 @@ CV_VARS <- c("PML_FYF", "PML_WAIVER", "RCP_GOLD", "RCP_GREEN", "CENTURION", "PLA
 HELPER_FILE_PATH <- "../MVI_Sample_Prep_Helper_{MVIQ}.xlsx" %>% f_str()
 MARKET_FILES_PATH <- "../All_Sample_Files/Market_Files"
 
-RAW_DATA_PATH <- "\\\\pm1/33-626/Quantitative/Sampling-Weighting/Files from CMS/Q1"
+RAW_DATA_PATH <- "\\\\pm1/34-716/Quantitative/Sampling-Weighting/Files from CMS/Q1"
 
-PCT_INDIA_PATH <- "../Supporting_Files/Final MVI Q1.23 PCT List INDIA.csv"
-PCT_EX_INDIA_PATH <- "../Supporting_Files/Final MVI Q1.23 PCT List Ex INDIA_cleaned1.csv"
+PCT_LIST_PATH <- "../Supporting_Files/Final MVI Q1.24 PCT List.csv"
 
 # ------------------------------------------------------------------------------
 
@@ -33,16 +32,16 @@ load_raw_data <- function(country){
   "
   Function to extract the information for each country dataset and load it in
   "
-  paste0("Loading: ", country) %>% print()
+  paste0("Loading: ", country) %>% print() 
   
   # Get the list of files in the country sub-folder
-  country_files <- file.path(RAW_DATA_PATH, country) %>% list.files()
+  country_files <- file.path(RAW_DATA_PATH, country) %>% list.files() 
   
   # Let us know if the country file hasnt been received without breaking the code
   if (length(country_files) == 0){print("Not Recieved Yet"); return(data.frame(Country = NA))}
   
   # Get the country info from the sample prep file
-  na_country_info <- country_codes[country_codes$`Country_Language` == country,]
+  na_country_info <- country_codes[country_codes$`Country_Language` == country,] 
   
   # identify which file contains the layout
   layout_file <- country_files[str_detect(country_files, "deliveryfilelayout.html")]
@@ -68,7 +67,7 @@ load_raw_data <- function(country){
     }
   
   # Load in the data
-  tbl <- "{RAW_DATA_PATH}/{country}/{data_filename}" %>% glue() %>% 
+  tbl <- file.path(RAW_DATA_PATH, country, data_filename) %>% 
     read_fwf(col_positions = fwf_widths(layout_table$Length),
              col_types = cols(.default = 'c')) %>% # Default every import to character to not mess up formats 
     set_names(layout_table$New_Fieldname)
