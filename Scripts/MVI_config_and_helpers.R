@@ -41,7 +41,7 @@ load_raw_data <- function(country){
   if (length(country_files) == 0){print("Not Recieved Yet"); return(data.frame(Country = NA))}
   
   # Get the country info from the sample prep file
-  na_country_info <- country_codes[country_codes$`Country_Language` == country,] 
+  na_country_info <- country_codes[country_codes$`Country_Name_CMS` == country,]
   
   # identify which file contains the layout
   layout_file <- country_files[str_detect(country_files, "deliveryfilelayout.html")]
