@@ -49,7 +49,7 @@ var_mapping <- read_excel(HELPER_FILE_PATH, sheet = "Variable_Info") %>% # Varia
 
   
 country_codes <- read_excel(HELPER_FILE_PATH, sheet = "Country_Info") %>% # Country and language codes
-  set_names(c("NA_Country_Code",	"Country",	"Country_Name_PML",	"NA_Language_Index",
+  set_names(c("NA_Country_Code",	"Country",	"Country_Name_PML",	"Country_Name_CMS", "NA_Language_Index",
               "File_Ext",	"Language_Code",	"NA_Language_Code",	"CV_ICS_Region",	"Filename")) 
 
 # Load in all raw data and join into a single dataframe
@@ -60,10 +60,11 @@ MVI_Sample <- map(countries, load_raw_data) %>%
   mutate(across(c("Tenure", "Total_OD_Spend_USD"), as.numeric), # Convert to numeric
          NA_Cell_Number = as.numeric(Cell_Number))
 
-save(MVI_Sample, file = f_str("../Temporary_Data/MVI_Sample_Combined_{MVIQ}.Rdata"))
+save(MVI_Sample, file = f_str("../Temporary_Data/{MVIQ}_Sample_Combined_{Sys.Date()}.Rdata"))
 
 # UNCOMMENT THIS IF YOU HAVE ALREADY CREATED MVI_SAMPLE BEFORE AND COMMENT OUT THE LOADING AND SAVE LINES ABOVE
-# load(f_str("../Temporary_Data/MVI_Sample_Combined_{MVIQ}.Rdata"))
+LAST_DATE <- "2024-06-19"
+# load(f_str("../Temporary_Data/{MVIQ}_Sample_Combined_{LAST_DATE}.Rdata"))
 
 f_str("There were {format(nrow(MVI_Sample), big.mark = ',')} observations loaded") %>% print()
 ```
@@ -477,7 +478,7 @@ misaligned_pct_codes_sum <- misaligned_pct_codes_sum %>%
 # Save to the output workbook
 addWorksheet(Diagnostic_WB, "PCT_not_in_AIF_Summary")
 writeData(Diagnostic_WB, "PCT_not_in_AIF_Summary", misaligned_pct_codes_sum) 
-saveWorkbook(Diagnostic_WB, file = f_str("../Files_to_send/MVI_Diagnostics_{MVIQ}.xlsx"), overwrite = TRUE)
+saveWorkbook(Diagnostic_WB, file = f_str("../Files_to_send/{MVIQ}_Diagnostics_{Sys.Date()}.xlsx"), overwrite = TRUE)
 ```
 
 ### STOP HERE: SEND FILES TO OPS {style="color: red"}
@@ -873,7 +874,7 @@ mrkt_level_summary <- mrkt_level_summary %>%
 # Write to excel to send to OPS Manager
 addWorksheet(Diagnostic_WB, "Market_lvl_Summary")
 writeData(Diagnostic_WB, "Market_lvl_Summary", mrkt_level_summary)
-saveWorkbook(Diagnostic_WB, file = f_str("../Files_to_send/MVI_Diagnostics_{MVIQ}.xlsx"), overwrite = TRUE)
+saveWorkbook(Diagnostic_WB, file = f_str("../Files_to_send/{MVIQ}_Diagnostics_{Sys.Date()}.xlsx"), overwrite = TRUE)
 ```
 
 ### Reformatting to match what Qualtrics is expecting
@@ -964,8 +965,8 @@ MVI_final <- MVI_final_postals %>%
 # Save the postals and checking db in case you want to close R and not have to rerun everything to write them for Bob after everything is created
 # They can be reloaded in down below
 
-save(MVI_final_postals, file="../Temporary_Data/MVI_Postals.Rdata")
-save(MVI_final, file="../Temporary_Data/MVI_Final_Checking_{Sys.Date()}.Rdata")
+save(MVI_final_postals, file=f_str("../Temporary_Data/{MVIQ}_Postals.Rdata"))
+save(MVI_final, file=f_str("../Temporary_Data/{MVIQ}_Checking_{Sys.Date()}.Rdata"))
 ```
 
 
@@ -983,7 +984,7 @@ rm(MVI_Sample_ws)
          # CV_AIRLINE,
          # COB,  
          # Filename
-MVI_final %>% write_csv(f_str("../All_Sample_Files/MVI_Final_Checking_{MVIQ}_{Sys.Date()}.csv"), na = "")
+MVI_final %>% write_csv(f_str("../All_Sample_Files/{MVIQ}_Checking_{Sys.Date()}.csv"), na = "")
 ```
 
 ```{r}
@@ -991,7 +992,7 @@ MVI_final %>% write_csv(f_str("../All_Sample_Files/MVI_Final_Checking_{MVIQ}_{Sy
 # You can just reload in the data without rerunning the whole script
 
 last_save_date <- '2023-10-03' # last time you saved the mvi_final dataset
-# load("../Temporary_Data/MVI_Final_Checking_{last_save_date}.Rdata")
+# load("../Temporary_Data/{MVIQ}_Checking_{last_save_date}.Rdata")
 ```
 
 ### STOP HERE: SEND FILES TO OPS {style="color: red"}
@@ -1060,7 +1061,7 @@ MVI_final <- MVI_final %>%
            CV_AIRLINE,
            COB))
          
-MVI_final %>% select(-Filename) %>% write_csv(f_str("../All_Sample_Files/MVI_Final_{MVIQ}_{Sys.Date()}.csv"), na = "")
+MVI_final %>% select(-Filename) %>% write_csv(f_str("../All_Sample_Files/{MVIQ}_Final_{Sys.Date()}.csv"), na = "")
 ```
 
 #### Write final files as individual CSVs
@@ -1077,7 +1078,7 @@ MVI_final %>%
 
 ```{r}
 # If you closed r and just want to load in the postals db, uncomment this line
-# load("../Temporary_Data/MVI_Postals.Rdata")
+# load("../Temporary_Data/{MVIQ}_Postals.Rdata")
 
 postals <- MVI_final_postals %>% 
   select(Amex_Customer_ID,
@@ -1087,5 +1088,5 @@ postals <- MVI_final_postals %>%
          Language_Code,
          Postal_Code)
 
-postals %>% write_csv(f_str("../Files_to_send/Postal_Codes_{MVIQ}.csv"), na = "")
+postals %>% write_csv(f_str("../Files_to_send/{MVIQ}_Postal_Codes.csv"), na = "")
 ```
