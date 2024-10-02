@@ -11,9 +11,9 @@ pacman::p_load("tidyverse",
 f_str <- function(str) glue(str) %>% as.character()
 
 # ------------------------------------------------------------------------------
-MONTH <- "03"
-YEAR <- 2023
-MVIQ <- "MVIQ123"
+MONTH <- "07"
+YEAR <- 2024
+MVIQ <- "MVIQ324"
 
 # If any new CVs are added, this needs to be updated
 CV_VARS <- c("PML_FYF", "PML_WAIVER", "RCP_GOLD", "RCP_GREEN", "CENTURION", "PLATINUM", "COBRAND", "AIRLINE")
@@ -22,9 +22,9 @@ CV_VARS <- c("PML_FYF", "PML_WAIVER", "RCP_GOLD", "RCP_GREEN", "CENTURION", "PLA
 HELPER_FILE_PATH <- "../MVI_Sample_Prep_Helper_{MVIQ}.xlsx" %>% f_str()
 MARKET_FILES_PATH <- "../All_Sample_Files/Market_Files"
 
-RAW_DATA_PATH <- "\\\\pm1/34-716/Quantitative/Sampling-Weighting/Files from CMS/Q1"
+RAW_DATA_PATH <- "\\\\pm1/34-716/Quantitative/Sampling-Weighting/Files from CMS/Q3"
 
-PCT_LIST_PATH <- "../Supporting_Files/Final MVI Q1.24 PCT List.csv"
+PCT_LIST_PATH <- "../Supporting_Files/Final MVI Q2.24 PCT List.csv"
 
 # ------------------------------------------------------------------------------
 
@@ -64,7 +64,7 @@ load_raw_data <- function(country){
   if(sum(is.na(layout_table$New_Fieldname)) > 0){
     stop(paste(' There are new variables in the raw data not listed in the Sample Prep Helper Excel sheet "Variable Info". Please add them before rerunning this code:', 
                paste(layout_table$`Field Name`[is.na(layout_table$New_Fieldname)], collapse = " | ")))
-    }
+  }
   
   # Load in the data
   tbl <- file.path(RAW_DATA_PATH, country, data_filename) %>% 

@@ -63,7 +63,7 @@ MVI_Sample <- map(countries, load_raw_data) %>%
 save(MVI_Sample, file = f_str("../Temporary_Data/{MVIQ}_Sample_Combined_{Sys.Date()}.Rdata"))
 
 # UNCOMMENT THIS IF YOU HAVE ALREADY CREATED MVI_SAMPLE BEFORE AND COMMENT OUT THE LOADING AND SAVE LINES ABOVE
-LAST_DATE <- "2024-06-19"
+# LAST_DATE <- "2024-06-19"
 # load(f_str("../Temporary_Data/{MVIQ}_Sample_Combined_{LAST_DATE}.Rdata"))
 
 f_str("There were {format(nrow(MVI_Sample), big.mark = ',')} observations loaded") %>% print()
@@ -144,15 +144,16 @@ NOTE YOU WILL ONLY KNOW IF YOU NEED TO DO THIS AFTER YOU SEND THE FIRST DIAGNOST
   - The information you need is the Unique_Record_Identifier15, Update_NA_Cell,Update_Product,	Update_NA_Product_Code for all people to update.
  
 ```{r}
-# pct_changes <- read_excel(HELPER_FILE_PATH, 'PCT_Code_Changes') %>% 
-#   select(Unique_Record_Identifier15, Update_NA_Cell,Update_Product,	Update_NA_Product_Code) %>% 
+# pct_changes <- read_excel(HELPER_FILE_PATH, 'PCT_Code_Changes') %>%
+#   select(Unique_Record_Identifier15, Update_NA_Cell,Update_Product,	Update_PCT_Code) %>%
 #   mutate(Update_Cell = str_pad(Update_NA_Cell, 2, 'left', '0'))
 # 
-# MVI_Sample <- MVI_Sample %>% 
+# MVI_Sample <- MVI_Sample %>%
 #   left_join(pct_changes) %>%
 #   mutate(Cell_Number = if_else(!is.na(Update_Cell), Update_Cell, Cell_Number),
 #          NA_Cell_Number = if_else(!is.na(Update_NA_Cell), Update_NA_Cell, NA_Cell_Number),
-#          Card_Product = if_else(!is.na(Update_Product), Update_Product, Card_Product)) %>% 
+#          Card_Product = if_else(!is.na(Update_Product), Update_Product, Card_Product),
+#          Product_Code = if_else(!is.na(Update_PCT_Code), Update_PCT_Code, Product_Code)) %>%
 #   select(-starts_with("Update"))
 ```
 
@@ -388,7 +389,8 @@ aif_pct <- read_csv(PCT_LIST_PATH, col_types = 'cccccccc') %>%
               'Card_ProductAIF', 'COUNTRY', 'NA_Prd_Code'))  %>% 
   mutate(Formatted_PCT_Code = substr(Formatted_PCT_Code, 1, 3), # Some PCT Codes come in badly formatted with a bunch of extra characters
          Cell_Number = str_pad(Cell_Number, 2, pad = "0"),
-         NA_Prd_Code = str_pad(NA_Prd_Code, 4, pad = "0")) %>% 
+         NA_Prd_Code = str_pad(NA_Prd_Code, 4, pad = "0"),
+         NA_Country_Code = as.numeric(NA_Country_Code)) %>% 
   distinct()
 ```
 
@@ -431,7 +433,7 @@ if (n_misaligned > 0){
   
   # Save to the output workbook
   addWorksheet(Diagnostic_WB, "PCT_not_in_AIF_Individuals")
-  writeData(Diagnostic_WB, "PCT_not_in_AIF_Individuals", misaligned_pct_codes) 
+  writeData(Diagnostic_WB, "PCT_not_in_AIF_Individuals", misaligned_pct_codes)
   
 } else{
   message("SUCCESS: No PCT Code misalignment with AIF")
@@ -478,7 +480,7 @@ misaligned_pct_codes_sum <- misaligned_pct_codes_sum %>%
 # Save to the output workbook
 addWorksheet(Diagnostic_WB, "PCT_not_in_AIF_Summary")
 writeData(Diagnostic_WB, "PCT_not_in_AIF_Summary", misaligned_pct_codes_sum) 
-saveWorkbook(Diagnostic_WB, file = f_str("../Files_to_send/{MVIQ}_Diagnostics_{Sys.Date()}.xlsx"), overwrite = TRUE)
+saveWorkbook(Diagnostic_WB, file = f_str("../Files_to_send/MVI_Diagnostics_{MVIQ}-{Sys.Date()}.xlsx"), overwrite = TRUE)
 ```
 
 ### STOP HERE: SEND FILES TO OPS {style="color: red"}
@@ -651,7 +653,7 @@ rm(MVI_Sample)
 ### Creating New Variables
 
 
-```{r Create new variables, message=F}
+```{r Create new variables, message=F, warning=F}
 # Basically what's going on in the next few lines is we create a dataframe with all of the unique product codes in the sample dataset and then assign values for each of the created variables based on the conditions in the CV_Product_Codes sheet.
 # We then join this to original dataframe by product code. 
 
@@ -1088,5 +1090,5 @@ postals <- MVI_final_postals %>%
          Language_Code,
          Postal_Code)
 
-postals %>% write_csv(f_str("../Files_to_send/{MVIQ}_Postal_Codes.csv"), na = "")
+postals %>% write_csv(f_str("../Files_to_send/{MVIQ}_Postal_Codes_{Sys.Date()}.csv"), na = "")
 ```
