@@ -11,9 +11,11 @@ pacman::p_load("tidyverse",
 f_str <- function(str) glue(str) %>% as.character()
 
 # ------------------------------------------------------------------------------
-MONTH <- "07"
+MONTH <- "10"
+Q <- "Q4"
 YEAR <- 2024
-MVIQ <- "MVIQ324"
+
+MVIQ <- 'MVI{Q}{substr(YEAR, 3, 4)}' %>% f_str()
 
 # If any new CVs are added, this needs to be updated
 CV_VARS <- c("PML_FYF", "PML_WAIVER", "RCP_GOLD", "RCP_GREEN", "CENTURION", "PLATINUM", "COBRAND", "AIRLINE")
@@ -22,7 +24,7 @@ CV_VARS <- c("PML_FYF", "PML_WAIVER", "RCP_GOLD", "RCP_GREEN", "CENTURION", "PLA
 HELPER_FILE_PATH <- "../MVI_Sample_Prep_Helper_{MVIQ}.xlsx" %>% f_str()
 MARKET_FILES_PATH <- "../All_Sample_Files/Market_Files"
 
-RAW_DATA_PATH <- "\\\\pm1/34-716/Quantitative/Sampling-Weighting/Files from CMS/Q3"
+RAW_DATA_PATH <- "\\\\pm1/34-716/Quantitative/Sampling-Weighting/Files from CMS/{Q}" %>% f_str()
 
 PCT_LIST_PATH <- "../Supporting_Files/Final MVI Q2.24 PCT List.csv"
 
@@ -32,13 +34,13 @@ load_raw_data <- function(country){
   "
   Function to extract the information for each country dataset and load it in
   "
-  paste0("Loading: ", country) %>% print() 
+  paste0("Loading: ", country) %>% message() 
   
   # Get the list of files in the country sub-folder
   country_files <- file.path(RAW_DATA_PATH, country) %>% list.files() 
   
   # Let us know if the country file hasnt been received without breaking the code
-  if (length(country_files) == 0){print("Not Recieved Yet"); return(data.frame(Country = NA))}
+  if (length(country_files) == 0){message("\t- Not Recieved Yet"); return(data.frame(Country = NA))}
   
   # Get the country info from the sample prep file
   na_country_info <- country_codes[country_codes$`Country_Name_CMS` == country,]
@@ -58,7 +60,7 @@ load_raw_data <- function(country){
   # Layout table has the variable names, and their start and stop positions in the text file
   layout_table <- html_file_tables[[4]] %>% html_table() %>%
     # Get the desired field names from the "Variable info" sheet of the Sample Prep Helper Excel
-    left_join(var_mapping, by =c("Field Name" = "OG_Field"))
+    left_join(var_mapping, by = c("Field Name" = "OG_Field"))
   
   # Check if any new variables are present
   if(sum(is.na(layout_table$New_Fieldname)) > 0){

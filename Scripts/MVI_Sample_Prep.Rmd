@@ -56,7 +56,7 @@ country_codes <- read_excel(HELPER_FILE_PATH, sheet = "Country_Info") %>% # Coun
 # COMMENT OUT LINES UNTIL AFTER save(...) ONCE THIS HAS ALREADY BEEN RUN ONCE
 
 MVI_Sample <- map(countries, load_raw_data) %>%
-  reduce(full_join) %>%
+  reduce(\(x, y) suppressMessages(full_join(x,y))) %>%
   mutate(across(c("Tenure", "Total_OD_Spend_USD"), as.numeric), # Convert to numeric
          NA_Cell_Number = as.numeric(Cell_Number))
 
