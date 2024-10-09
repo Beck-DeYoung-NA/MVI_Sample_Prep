@@ -75,7 +75,7 @@ PML <- read_excel(HELPER_FILE_PATH,
                 sheet = "PML_Info",
                 skip = 1) %>% 
   # Convert certain columns to numeric
-  mutate(across(c(NA_Country_Code, NA_Language_Index, File_Ext), as.numeric),
+  mutate(across(c(NA_Country_Code, NA_Language_Index, File_Ext, Sample_Requested), as.numeric),
          NA_Cell_Number = as.numeric(Cell_Number),
          # Fix subject_line_insertion variable
          Subject_Line_Insertion =  if_else(Subject_Line_Insertion == "[No subject line insertion]", 
@@ -137,11 +137,26 @@ For Q4 2023, The impacted products to be removed are:
 
 ### Updating PCT Codes that were misaligned
 
+#### First - General Misalignment
+
+This is misalignment that has occurred for multiple waves and can be fixed before doing the sample prep
+```{r}
+MVI_Sample <- MVI_Sample %>% 
+  mutate(Product_Code = case_when(
+    NA_Country_Code == 38 & NA_Cell_Number == 1 & Product_Code == "631" ~ "A6I",
+    NA_Country_Code == 38 & NA_Cell_Number == 4 & Product_Code == "631" ~ "EC",
+    NA_Country_Code == 38 & NA_Cell_Number == 5 & Product_Code == "630" ~ "EB",
+    T ~ Product_Code
+  ))
+```
+
+
+#### Second - Quarter Specific Misalignment
+
 NOTE YOU WILL ONLY KNOW IF YOU NEED TO DO THIS AFTER YOU SEND THE FIRST DIAGNOSTIC EMAIL HALFWAY DOWN THE SCRIPT. 
 
- - This occurred after we identified misalignment, the code had to be adjusted up here so that we extracted the correct subject line inserts and card product names with the adjustments. This has only happened once in 2023 (Q4)
- - Unfortunately, we cannot say for certain how OPS will provide the changes, so you may need to change the loading in the data step if this occurs
-  - The information you need is the Unique_Record_Identifier15, Update_NA_Cell,Update_Product,	Update_NA_Product_Code for all people to update.
+ - This occurs after we identified misalignment further down below, the code had to be adjusted up here so that we extracted the correct subject line inserts and card product names with the adjustments.
+  - The information you need is the Unique_Record_Identifier15, Update_NA_Cell, Update_Product,	Update_NA_PCT_Code for all people to update.
  
 ```{r}
 # pct_changes <- read_excel(HELPER_FILE_PATH, 'PCT_Code_Changes') %>%
