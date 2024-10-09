@@ -21,7 +21,7 @@ MVIQ <- 'MVI{Q}{substr(YEAR, 3, 4)}' %>% f_str()
 CV_VARS <- c("PML_FYF", "PML_WAIVER", "RCP_GOLD", "RCP_GREEN", "CENTURION", "PLATINUM", "COBRAND", "AIRLINE")
 
 # ------------------------------------------------------------------------------
-HELPER_FILE_PATH <- "../MVI_Sample_Prep_Helper_{MVIQ}.xlsx" %>% f_str()
+HELPER_FILE_PATH <- "../Sample_Prep_Helper_{MVIQ}.xlsx" %>% f_str()
 MARKET_FILES_PATH <- "../All_Sample_Files/Market_Files"
 
 RAW_DATA_PATH <- "\\\\pm1/34-716/Quantitative/Sampling-Weighting/Files from CMS/{Q}" %>% f_str()
