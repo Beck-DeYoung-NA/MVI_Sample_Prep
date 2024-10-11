@@ -55,8 +55,14 @@ country_codes <- read_excel(HELPER_FILE_PATH, sheet = "Country_Info") %>% # Coun
 # Load in all raw data and join into a single dataframe
 # COMMENT OUT LINES UNTIL AFTER save(...) ONCE THIS HAS ALREADY BEEN RUN ONCE
 
+join_counter <- 0
 MVI_Sample <- map(countries, load_raw_data) %>%
-  reduce(\(x, y) suppressMessages(full_join(x,y))) %>%
+  reduce(function(x, y) {
+    if (join_counter == 0) message("--------------Joining all markets--------------")
+    
+    join_counter <<- join_counter + 1
+    suppressMessages(full_join(x, y))}
+    ) %>%
   mutate(across(c("Tenure", "Total_OD_Spend_USD"), as.numeric), # Convert to numeric
          NA_Cell_Number = as.numeric(Cell_Number))
 
@@ -141,13 +147,17 @@ For Q4 2023, The impacted products to be removed are:
 
 This is misalignment that has occurred for multiple waves and can be fixed before doing the sample prep
 ```{r}
-MVI_Sample <- MVI_Sample %>% 
-  mutate(Product_Code = case_when(
-    NA_Country_Code == 38 & NA_Cell_Number == 1 & Product_Code == "631" ~ "A6I",
-    NA_Country_Code == 38 & NA_Cell_Number == 4 & Product_Code == "631" ~ "EC",
-    NA_Country_Code == 38 & NA_Cell_Number == 5 & Product_Code == "630" ~ "EB",
-    T ~ Product_Code
-  ))
+conditions_df <- data.frame(
+  condition = c(
+    'NA_Country_Code == 38 & NA_Cell_Number == 1 & Product_Code == "631"',
+    'NA_Country_Code == 38 & NA_Cell_Number == 4 & Product_Code == "631"',
+    'NA_Country_Code == 38 & NA_Cell_Number == 5 & Product_Code == "630"'
+  ),
+  new_product_code = c('A6I', 'EC', 'EB')
+)
+
+
+MVI_Sample <- MVI_Sample %>% update_and_count_product_codes(conditions_df)
 ```
 
 
@@ -156,20 +166,21 @@ MVI_Sample <- MVI_Sample %>%
 NOTE YOU WILL ONLY KNOW IF YOU NEED TO DO THIS AFTER YOU SEND THE FIRST DIAGNOSTIC EMAIL HALFWAY DOWN THE SCRIPT. 
 
  - This occurs after we identified misalignment further down below, the code had to be adjusted up here so that we extracted the correct subject line inserts and card product names with the adjustments.
-  - The information you need is the Unique_Record_Identifier15, Update_NA_Cell, Update_Product,	Update_NA_PCT_Code for all people to update.
+  - The information you need is the NA_Country_Code, NA_Cell_Number, NA_Language_Index, Product_Code, Update_NA_Cell, Update_Product, and or Update_NA_PCT_Code for all people to update.
  
 ```{r}
 # pct_changes <- read_excel(HELPER_FILE_PATH, 'PCT_Code_Changes') %>%
-#   select(Unique_Record_Identifier15, Update_NA_Cell,Update_Product,	Update_PCT_Code) %>%
-#   mutate(Update_Cell = str_pad(Update_NA_Cell, 2, 'left', '0'))
+#   #select(Update_NA_Cell,Update_Product,	Update_PCT_Code) %>%
+#   mutate(Update_NA_Cell_Number = as.numeric(Update_NA_Cell_Number),
+#     Update_Cell = str_pad(Update_NA_Cell_Number, 2, 'left', '0'))
 # 
 # MVI_Sample <- MVI_Sample %>%
-#   left_join(pct_changes) %>%
+#   left_join(pct_changes) %>% 
 #   mutate(Cell_Number = if_else(!is.na(Update_Cell), Update_Cell, Cell_Number),
-#          NA_Cell_Number = if_else(!is.na(Update_NA_Cell), Update_NA_Cell, NA_Cell_Number),
+#          NA_Cell_Number = if_else(!is.na(Update_NA_Cell_Number), Update_NA_Cell_Number, NA_Cell_Number),
 #          Card_Product = if_else(!is.na(Update_Product), Update_Product, Card_Product),
-#          Product_Code = if_else(!is.na(Update_PCT_Code), Update_PCT_Code, Product_Code)) %>%
-#   select(-starts_with("Update"))
+#          Product_Code = if_else(!is.na(Update_PCT_Code), Update_PCT_Code, Product_Code)) %>% 
+#   select(-starts_with("Update"), -NA_Product_Code)
 ```
 
 
@@ -196,6 +207,10 @@ mrkt_level_summary <- cell_lvl_summary %>%
   summarize(Sample_Requested = sum(Sample_Requested, na.rm = T),
             Sample_Recieved = sum(Sample_Recieved, na.rm = T),
             Dif = sum(Dif, na.rm = T))
+
+# Add Market Level Summary to Diagnostic File
+addWorksheet(Diagnostic_WB, "Market_Level_Summary")
+writeData(Diagnostic_WB, "Market_Level_Summary", mrkt_level_summary)
 ```
 
 ### Checking for Unique ID Duplicates
@@ -286,7 +301,7 @@ writeData(Diagnostic_WB, "Spend_Summary (Pre-Removals)", spend_summary)
 ### Tenure Check and Removal
 
 ```{r Tenure Removal}
-tenure_to_remove <- MVI_Sample %>% 
+to_remove_tenure <- MVI_Sample %>% 
   # 1 = "Australia, 39 = "New Zealand"
   filter((Tenure < 6 & !NA_Country_Code %in% c(1,39)) | # Tenure less than 6 not in Aus, NZ
          (Tenure < 12 & NA_Country_Code %in% c(1,39)) | # Tenure less than 12 in AUS, NZ
@@ -294,23 +309,29 @@ tenure_to_remove <- MVI_Sample %>%
 
 # Store in frequency format for comparison table
 # This is added at the end of the script
-wrong_tenure_freq <- tenure_to_remove %>% 
+to_remove_tenure_summary <- to_remove_tenure %>% 
   group_by(NA_Country_Code, NA_Language_Index, File_Ext) %>% 
   summarize(Tenure_Removed = n())
 
+# Add tenure to summary table (just for diagnostic file)
+to_remove_tenure_summary_w_tenure <- to_remove_tenure %>% 
+  group_by(NA_Country_Code, NA_Language_Index, File_Ext, Tenure) %>% 
+  summarize(Tenure_Removed = n()) %>% 
+  arrange(NA_Country_Code, NA_Language_Index, File_Ext, Tenure)
+
 # Remove wrong tenures
 MVI_Sample <- MVI_Sample %>% 
-  filter(!Unique_Record_Identifier15 %in% tenure_to_remove$Unique_Record_Identifier15)
+  filter(!Unique_Record_Identifier15 %in% to_remove_tenure$Unique_Record_Identifier15)
 
-if (nrow(tenure_to_remove) > 0){
-  warning(f_str("There were {nrow(tenure_to_remove)} observations removed with erroneous tenure. These are found in the Diagnostic_Files/Removed_Tenure.csv file"))
+if (nrow(to_remove_tenure) > 0){
+  warning(f_str("There were {nrow(to_remove_tenure)} observations removed with erroneous tenure. These are found in the Diagnostic_Files/Removed_Tenure.csv file"))
   
   # Write to excel to eventually send to OPS Manager
   addWorksheet(Diagnostic_WB, "Removed_Tenure_Individuals")
-  writeData(Diagnostic_WB, "Removed_Tenure_Individuals", tenure_to_remove)
+  writeData(Diagnostic_WB, "Removed_Tenure_Individuals", to_remove_tenure)
   
   addWorksheet(Diagnostic_WB, "Removed_Tenure_Summary")
-  writeData(Diagnostic_WB, "Removed_Tenure_Summary", wrong_tenure_freq)
+  writeData(Diagnostic_WB, "Removed_Tenure_Summary", to_remove_tenure_summary_w_tenure)
   
 } else{
   message("No observations removed because of erroneous tenure")
@@ -486,7 +507,7 @@ pcts <- names(pct_code_spread)[str_detect(names(pct_code_spread), "PCT_Code_[0-9
 # This is sent to OPS to tell us what to do with the misalignment
 misaligned_pct_codes_sum <- misaligned_pct_codes_sum %>% 
   left_join(pct_code_spread) %>% 
-  select(NA_Country_Code, Cell_Number, 
+  select(NA_Country_Code, Cell_Number, NA_Language_Index,
          "PML NA_Product_Code" = NA_Prd_Code,
          Sample_PCT_Code = Product_Code,
          Card_ProductAIF, Count,
@@ -495,7 +516,7 @@ misaligned_pct_codes_sum <- misaligned_pct_codes_sum %>%
 # Save to the output workbook
 addWorksheet(Diagnostic_WB, "PCT_not_in_AIF_Summary")
 writeData(Diagnostic_WB, "PCT_not_in_AIF_Summary", misaligned_pct_codes_sum) 
-saveWorkbook(Diagnostic_WB, file = f_str("../Files_to_send/MVI_Diagnostics_{MVIQ}-{Sys.Date()}.xlsx"), overwrite = TRUE)
+saveWorkbook(Diagnostic_WB, file = f_str("../Files_to_send/{MVIQ}_Diagnostics-{Sys.Date()}.xlsx"), overwrite = TRUE)
 ```
 
 ### STOP HERE: SEND FILES TO OPS {style="color: red"}
@@ -505,11 +526,13 @@ Send the following file to OPS
   
 But, instead of attaching files, copy the file to the `\\pm1\33-626\Quantitative\Sampling-Weighting\Communications\QUARTER` folder and send the link. Here is an example email.
 
-    Hi Allie,
+    Hi,
     
-    Here is a diagnostic file with some initial findings from the data for you to review. Please let us know what you think: `\\pm1\33-626\Quantitative\Sampling-Weighting\Communications\QUARTER\MVI_Diagnositcs_QUARTER.xlsx`.
+    Here is a diagnostic file with some initial findings from the data for you to review. Please let us know what you think: `FILE`.
     
-    The file contains 6 sheets.
+    The file contains 7 sheets.
+      - Market_Level_Summary: Summary of sample received vs sample requested by market
+              - Nothing appears to be too alarming in the differences between requested and recieved samples. 
       - Cell_Level Summary: Summary of sample received vs sample requested by cell number
               - Nothing appears to be too alarming in the differences between requested and recieved samples. 
               - The largest percent differences occur in markets where all cells recieved the same amount of extra sample. For example, every cell in Belgium recieved 9 more samples than requested, which resulted in a 40% difference in one cell between requested and recieved.
@@ -517,7 +540,7 @@ But, instead of attaching files, copy the file to the `\\pm1\33-626\Quantitative
     -  Spend_Summary (Pre-Removals): Spend summary statistics prior to removing any observations
     
     - Removed_Tenure_Individuals & Removed_Tenure_Summary: Individuals removed for low tenure, which is <12 in Australia and New Zealand and <6 elsewhere, and summary by market.
-              - There were 529 people removed, all from Belgium (this has happened the past 3 quarters for Belgium).
+              - There were 529 people removed, all from Belgium (this has happened consistently in Belgium).
     
     THIS IS WHERE WE NEED ACTION TO MOVE ON TO THE NEXT STEPS.
     
@@ -545,29 +568,29 @@ But, instead of attaching files, copy the file to the `\\pm1\33-626\Quantitative
     4. Rerun everything under the loading in, and when you get to pct code misaligned, nothing should be misaligned anymore. 
     5. You do not need to resend the email of diagnostics. The diagnostic file will be updated, and will be sent at the end of the process. 
     6. Then run the chunk below. If all went well, `misaligned_pct_codes` will be empty and nothing will change to the database
-      - We still need to run this chunk because we need the removed_pcts_ct for the summary at the end (it will just be zeros unless they wanted you to remove some on top of making changes)
+      - We still need to run this chunk because we need the to_remove_pct_codes_summary for the summary at the end (it will just be zeros unless they wanted you to remove some on top of making changes)
 
 ```{r}
 # Default to removing all
-pct_codes_to_remove <- misaligned_pct_codes 
+to_remove_pct_codes <- misaligned_pct_codes 
 
 # In the following, add filter statements to remove PCT codes that the PM said we should NOT delete
-# So the misaligned pct codes with country, cell, and product codes of (X1, Y1, Z1) and (X2, Y2, Z2) would not be removed in the below example. They are removed from the pct_codes_to_remove dataframe so they are not removed from the sample
-# The pct_codes_to_remove should only include what we want to remove
+# So the misaligned pct codes with country, cell, and product codes of (X1, Y1, Z1) and (X2, Y2, Z2) would not be removed in the below example. They are removed from the to_remove_pct_codes dataframe so they are not removed from the sample
+# The to_remove_pct_codes should only include what we want to remove
 
-# pct_codes_to_remove <- pct_codes_to_remove %>% 
+# to_remove_pct_codes <- to_remove_pct_codes %>% 
 #   filter(!(NA_Country_Code == X1 & Cell_Number == Y1 & Product_Code == Z1)) %>%
 #   filter(!(NA_Country_Code == X2 & Cell_Number == Y2 & Product_Code == Z2)) %>%
 
 n_before <- nrow(MVI_Sample)
 
 MVI_Sample <- MVI_Sample %>% 
-  anti_join(pct_codes_to_remove, by = "Unique_Record_Identifier15")
+  anti_join(to_remove_pct_codes, by = "Unique_Record_Identifier15")
 
 message(f_str("There were {n_before - nrow(MVI_Sample)} samples removed with erroneous PCT Codes"))
 
 # For Summary table at the end
-removed_pcts_ct <- pct_codes_to_remove %>% 
+to_remove_pct_codes_summary <- to_remove_pct_codes %>% 
   group_by(NA_Country_Code, NA_Language_Index) %>% 
   summarize(Misaligned_PCTs = n())
 ```
@@ -645,18 +668,18 @@ MVI_Sample_no_dups <-  MVI_Sample %>%
 ```
 
 ```{r Removed Dupes}
-removed_dups <- anti_join(amex_id_dups, MVI_Sample_no_dups, by = "Unique_Record_Identifier15")
+to_remove_amex_id_dupes <- anti_join(amex_id_dups, MVI_Sample_no_dups, by = "Unique_Record_Identifier15")
 
-removed_dups_summary <- removed_dups %>% 
+to_remove_amex_id_dupes_summary <- to_remove_amex_id_dupes %>% 
   group_by(NA_Country_Code, NA_Language_Index, File_Ext) %>% 
   summarize(Amex_ID_dupes = n())
 
 # Write to excel to send to OPS Manager
 addWorksheet(Diagnostic_WB, "Rem_AMEXID_Dupes_Inds")
-writeData(Diagnostic_WB, "Rem_AMEXID_Dupes_Inds", removed_dups)
+writeData(Diagnostic_WB, "Rem_AMEXID_Dupes_Inds", to_remove_amex_id_dupes)
 
 addWorksheet(Diagnostic_WB, "Rem_AMEXID_Dupes_Summary")
-writeData(Diagnostic_WB, "Rem_AMEXID_Dupes_Summary", removed_dups_summary)
+writeData(Diagnostic_WB, "Rem_AMEXID_Dupes_Summary", to_remove_amex_id_dupes_summary)
 ```
 
 ```{r}
@@ -740,21 +763,21 @@ MVI_Sample_new_vars <- MVI_Sample_new_vars %>%
              dob_flag$Unique_Record_Identifier15))
 
 # Get counts for summary table
-ms_ct <- member_since_flag  %>% 
+to_remove_ms_summary <- member_since_flag  %>% 
   group_by(NA_Country_Code, NA_Language_Index, File_Ext) %>% 
   summarize(Member_Since = n())
 
-dob_ct <- dob_flag %>% 
+to_remove_dob_summary <- dob_flag %>% 
   group_by(NA_Country_Code, NA_Language_Index, File_Ext) %>% 
   summarize(YOB = n())
 
-removed_ms_dob <- member_since_flag %>% 
+to_remove_ms_dob <- member_since_flag %>% 
   bind_rows(dob_flag) %>% 
   select(NA_Country_Code, NA_Language_Index, File_Ext, Amex_Customer_ID, Unique_Record_Identifier15, Member_Since, dYOB, Tenure)
 
 # Write to excel to send to OPS Manager
 addWorksheet(Diagnostic_WB, "Removed_Member_Since_DOB")
-writeData(Diagnostic_WB, "Removed_Member_Since_DOB", removed_ms_dob)
+writeData(Diagnostic_WB, "Removed_Member_Since_DOB", to_remove_ms_dob)
 ```
 
 
@@ -852,9 +875,9 @@ neg_spend <- MVI_Sample_ws %>% filter(Total_OD_Spend_USD < 0) %>%
 
 # Write to csv
 # These aren't sent anywhere but are kept just in case
-missing_spend %>% write_csv(f_str("../Diagnostic_Files/Missing_Spend_{MVIQ}.csv"), na = "")
-zero_spend %>% write_csv(f_str("../Diagnostic_Files/Zero_Spend_{MVIQ}.csv"), na = "")
-neg_spend %>% write_csv(f_str("../Diagnostic_Files/Negative_Spend_{MVIQ}.csv"), na = "")
+missing_spend %>% write_csv(f_str("../Diagnostic_Files/{MVIQ}_Missing.csv"), na = "")
+zero_spend %>% write_csv(f_str("../Diagnostic_Files/{MVIQ}_Zero_Spend.csv"), na = "")
+neg_spend %>% write_csv(f_str("../Diagnostic_Files/{MVIQ}_Negative_Spend.csv"), na = "")
 ```
 
 ```{r}
@@ -880,17 +903,16 @@ bad_spends_countrylevel <- bad_spends %>%
 # This contains all the summary tables we created through the code
 mrkt_level_summary <- mrkt_level_summary %>% 
   left_join(final_counts) %>% 
-  left_join(dob_ct) %>% 
-  left_join(ms_ct) %>% 
-  left_join(wrong_tenure_freq) %>% 
-  left_join(removed_pcts_ct) %>%
-  left_join(removed_dups_summary) %>% 
+  left_join(to_remove_dob_summary) %>% 
+  left_join(to_remove_ms_summary) %>% 
+  left_join(to_remove_tenure_summary) %>% 
+  left_join(to_remove_pct_codes_summary) %>%
+  left_join(to_remove_amex_id_dupes_summary) %>% 
   left_join(bad_spends_countrylevel) %>% 
   adorn_totals('row')
 
 # Write to excel to send to OPS Manager
-addWorksheet(Diagnostic_WB, "Market_lvl_Summary")
-writeData(Diagnostic_WB, "Market_lvl_Summary", mrkt_level_summary)
+writeData(Diagnostic_WB, "Market_Level_Summary", mrkt_level_summary)
 saveWorkbook(Diagnostic_WB, file = f_str("../Files_to_send/{MVIQ}_Diagnostics_{Sys.Date()}.xlsx"), overwrite = TRUE)
 ```
 
@@ -1025,11 +1047,11 @@ Importantly, you need to create an excel workbook from the csv manually and send
 DO NOT SAVE THE CSV. USE "SAVE AS" AND MAKE A NEW EXCEL FILE. Also copy this new file to the communications folder
 
 Formats: 
-  - Cell_Number : "00" 
-  - COUNTRY_CODE : "00"
-  - Account_number_last_5_digits: "00000"
-  - Amex_Customer_ID : "000000000000000"
-  - NAXION_PRODUCT_CODE: "0000"
+  - Cell_Number : TEXT(B2, REPT("0", 2)) 
+  - COUNTRY_CODE : TEXT(C2, REPT("0", 2)) 
+  - Account_number_last_5_digits: TEXT(M2, REPT("0", 5)) 
+  - Amex_Customer_ID : TEXT(N2, REPT("0", 15)) 
+  - NAXION_PRODUCT_CODE: TEXT(U2, REPT("0", 4)) 
   
 
 Importantly, the non-english characters in Subject_Line_Insertion will still be messed up in the excel. This is okay, since they are never changed in the csv.

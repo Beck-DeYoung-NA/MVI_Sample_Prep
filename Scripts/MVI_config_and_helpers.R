@@ -3,7 +3,12 @@ if (!require("pacman")) install.packages("pacman")
 pacman::p_load("tidyverse",
                "glue",
                "rvest",
-               "kableExtra")
+               "kableExtra",
+               'conflicted')
+
+conflicts_prefer(dplyr::select,
+                 dplyr::filter,
+                 .quiet = TRUE)
 
 # ------------------------------------------------------------------------------
 # Lets you embed variables into strings like python f-strings
@@ -11,22 +16,24 @@ pacman::p_load("tidyverse",
 f_str <- function(str) glue(str) %>% as.character()
 
 # ------------------------------------------------------------------------------
+# THIS SECTION IS FOR VARIABLES AND PATHS THAT MAY CHANGE PER QUARTER
+
 MONTH <- "10"
 Q <- "Q4"
 YEAR <- 2024
 
-MVIQ <- 'MVI{Q}{substr(YEAR, 3, 4)}' %>% f_str()
+# Path to PCT Codes
+PCT_LIST_PATH <- "../Supporting_Files/Final MVI Q2.24 PCT List.csv"
 
 # If any new CVs are added, this needs to be updated
 CV_VARS <- c("PML_FYF", "PML_WAIVER", "RCP_GOLD", "RCP_GREEN", "CENTURION", "PLATINUM", "COBRAND", "AIRLINE")
 
 # ------------------------------------------------------------------------------
+MVIQ <- 'MVI{Q}{substr(YEAR, 3, 4)}' %>% f_str()
 HELPER_FILE_PATH <- "../Sample_Prep_Helper_{MVIQ}.xlsx" %>% f_str()
 MARKET_FILES_PATH <- "../All_Sample_Files/Market_Files"
 
 RAW_DATA_PATH <- "\\\\pm1/34-716/Quantitative/Sampling-Weighting/Files from CMS/{Q}" %>% f_str()
-
-PCT_LIST_PATH <- "../Supporting_Files/Final MVI Q2.24 PCT List.csv"
 
 # ------------------------------------------------------------------------------
 
@@ -153,4 +160,35 @@ freq_table <- function(df, var, caption=NULL){
   if (!is.null(caption)) make_nice_table(tab, caption) # print table
   
   tab %>% return() # Return the table
+}
+
+# ------------------------------------------------------------------------------
+# Functions to update product codes and count what was changed
+update_and_count_product_codes <- function(data, conditions){
+  # Initialize the count column in the conditions data frame
+  conditions$Count <- 0
+  
+  # Make a copy of the original data to apply changes to
+  updated_data <- data
+  
+  # Loop over each condition and apply the changes
+  for (i in seq_len(nrow(conditions))) {
+    condition_str <- conditions$condition[i]
+    new_value <- conditions$new_product_code[i]
+    
+    # Evaluate the condition
+    condition_eval <- with(updated_data, eval(parse(text = condition_str)))
+    
+    # Apply the changes based on the condition
+    updated_data$Product_Code[condition_eval] <- new_value
+    
+    # Count the number of changes made
+    conditions$Count[i] <- sum(condition_eval, na.rm = TRUE)
+  }
+  
+  # Print the condition counts
+  output <- conditions %>% make_nice_table('Globally Changed PCT Code Counts')
+  
+  # Return the updated data only
+  return(updated_data)
 }
