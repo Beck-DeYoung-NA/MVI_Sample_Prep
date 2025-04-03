@@ -4,23 +4,20 @@ output:
   html_document:
     df_print: paged
 ---
-### Preparatory Steps
+## Preparatory Steps
 
 Consult `ReadMe.md` for instructions on how to configure the inputs
 properly before running this script
 
+Remember to update file paths and variables in `MVI_Config.R`
 
-Remember to update file paths and variables in `MVI_Config_and_helpers.R`
-
-### Notes
-
--   **This code will output warnings and messages.** The warnings indicate
+ **This code will output warnings and messages.** The warnings indicate
     a check is not met. These will be printouts with "Warning:" before
-    them. If a check is passed, a message will be printed with "SUCCESS:"
+    them. If a check is passed, a message will be printed with a green "✔"
     before it. If any warnings are printed, figure out why and report if
-    the warning says to.
+    the warning says to. Many warnings will just be for typical removals.
     
-```{r warning=F, message=F}
+```{r "Load Packages", warning=F, message=F}
 if (!require("pacman")) install.packages("pacman")
 
 # Loads in necessary packages, and installs them if you don't have them installed
@@ -29,86 +26,46 @@ pacman::p_load("tidyverse",
                "lubridate",
                "gtools",
                "janitor",
-               "openxlsx")
+               "openxlsx",
+               "fs",
+               "cli")
 
-source("MVI_Config_and_Helpers.R")
+source("MVI_Helper_Functions.R") # Load in helper functions and config
 
 options(dplyr.summarise.inform = FALSE,
         scipen = 99999) # Get rid of scientific notation
 
+knitr::opts_chunk$set(results = "asis", # Prints html tables nicely
+                      echo=TRUE) # Show all code chunks in the output
+
 Diagnostic_WB <- createWorkbook() # Create Diagnostic workbook
 ```
 
-### Loading in Raw Data
+## Loading in Raw Data
 
-```{r Load in the data, message=F}
-countries <- list.files(RAW_DATA_PATH) # Get list of countries in the Sampling Weighting Folder
+```{r "Load in the data"}
+MVI_Sample <- load_MVI_raw_data(bypass_missing_folders = T)
 
-var_mapping <- read_excel(HELPER_FILE_PATH, sheet = "Variable_Info") %>% # Variable naming info
-  set_names(c("OG_Field", "New_Fieldname"))
-
-  
-country_codes <- read_excel(HELPER_FILE_PATH, sheet = "Country_Info") %>% # Country and language codes
-  set_names(c("NA_Country_Code",	"Country",	"Country_Name_PML",	"Country_Name_CMS", "NA_Language_Index",
-              "File_Ext",	"Language_Code",	"NA_Language_Code",	"CV_ICS_Region",	"Filename")) 
-
-# Load in all raw data and join into a single dataframe
-# COMMENT OUT LINES UNTIL AFTER save(...) ONCE THIS HAS ALREADY BEEN RUN ONCE
-
-join_counter <- 0
-MVI_Sample <- map(countries, load_raw_data) %>%
-  reduce(function(x, y) {
-    if (join_counter == 0) message("--------------Joining all markets--------------")
-    
-    join_counter <<- join_counter + 1
-    suppressMessages(full_join(x, y))}
-    ) %>%
-  mutate(across(c("Tenure", "Total_OD_Spend_USD"), as.numeric), # Convert to numeric
-         NA_Cell_Number = as.numeric(Cell_Number))
-
-save(MVI_Sample, file = f_str("../Temporary_Data/{MVIQ}_Sample_Combined_{Sys.Date()}.Rdata"))
+# Save the raw sample data to a temporary folder so if you close R, you don't have to reload the raw data. Just load this file.
+save(MVI_Sample, file = f_str("../Temporary_Data/{MVIQ}_Raw_Sample_{Sys.Date()}.Rdata"))
 
 # UNCOMMENT THIS IF YOU HAVE ALREADY CREATED MVI_SAMPLE BEFORE AND COMMENT OUT THE LOADING AND SAVE LINES ABOVE
-# LAST_DATE <- "2024-06-19"
-# load(f_str("../Temporary_Data/{MVIQ}_Sample_Combined_{LAST_DATE}.Rdata"))
+# LAST_DATE <- "2025-02-24"
+# load(f_str("../Temporary_Data/{MVIQ}_Raw_Sample_{LAST_DATE}.Rdata"))
 
 f_str("There were {format(nrow(MVI_Sample), big.mark = ',')} observations loaded") %>% print()
 ```
 
-```{r Load in pml, message = FALSE}
-# Load in PML
-PML <- read_excel(HELPER_FILE_PATH,
-                sheet = "PML_Info",
-                skip = 1) %>% 
-  # Convert certain columns to numeric
-  mutate(across(c(NA_Country_Code, NA_Language_Index, File_Ext, Sample_Requested), as.numeric),
-         NA_Cell_Number = as.numeric(Cell_Number),
-         # Fix subject_line_insertion variable
-         Subject_Line_Insertion =  if_else(Subject_Line_Insertion == "[No subject line insertion]", 
-                                           NA_character_,
-                                           # Remove non-breaking spaces at end of line
-                                           gsub("[\u00A0\\h\\v]+$", "", Subject_Line_Insertion) %>%
-                                           # Not sure if we care about these two
-                                           # Change other non breaking spaces to regular spaces
-                                           gsub("\u00A0", " ", .) %>% 
-                                           # Remove zero-width spaces
-                                           gsub("\u200B", "", .) %>% trimws())) %>%  
-  filter(Sample_Requested > 0) %>% # Remove two Thailand products that are not used anymore will also remove any 0 sample requested products
-  select(-Country) # The Country variable in the PML is not what we want
-
+```{r "Load in pml", message = FALSE}
 # Load in the desired reporting names for each product code
-reporting_names <- read_excel(HELPER_FILE_PATH, sheet = "CV_Reporting_Names") %>% 
-  set_names(c("NA_Product_Code", "CV_Reporting_Names", "Comment")) %>% 
-  # Remove products who have been removed
-  filter(is.na(Comment) | !str_detect(tolower(Comment), "removed")) %>% 
-  select(-Comment) %>% 
-  mutate(NA_Product_Code = as.character(NA_Product_Code))
+reporting_names <- load_reporting_names()
 
-# Add the reporting names to the PML
-PML <- PML %>% left_join(reporting_names)
+# Load in PML and add reporting names
+PML <- load_pml() %>% left_join_suppress(reporting_names)
 ```
 
-# SINGLE USE CODE EXAMPLES
+
+## SINGLE USE CODE EXAMPLES
 
 ### REMOVING CERTAIN PRODUCTS
 
@@ -119,17 +76,12 @@ As an example:
 For Q4 2023, The impacted products to be removed are: 
 •	GRCC David Jones GPC (product code 0113)
 •	GRCC David Jones Platinum (product code 0143)
-•	0204 (cell 05) – Airmiles Blue
-•	0210 (cell 06) – Airmiles Platinum
-•	0260 (cell 12) – Airmiles Reserve
-
 
 ```{r}
-# to_remove <-  c(113, 143, 204, 210, 260)
+# to_remove <-  c(113, 143)
 # 
 # # Get PML products that we need to remove
-# to_remove_PML <- PML %>% 
-#   filter(NA_Product_Code %in% to_remove)
+# to_remove_PML <- PML %>% filter(NA_Product_Code %in% to_remove)
 # 
 # # Remove them from the PML
 # PML <- PML %>% filter(!NA_Product_Code %in% to_remove)
@@ -156,7 +108,6 @@ conditions_df <- data.frame(
   new_product_code = c('A6I', 'EC', 'EB')
 )
 
-
 MVI_Sample <- MVI_Sample %>% update_and_count_product_codes(conditions_df)
 ```
 
@@ -169,23 +120,23 @@ NOTE YOU WILL ONLY KNOW IF YOU NEED TO DO THIS AFTER YOU SEND THE FIRST DIAGNOST
   - The information you need is the NA_Country_Code, NA_Cell_Number, NA_Language_Index, Product_Code, Update_NA_Cell, Update_Product, and or Update_NA_PCT_Code for all people to update.
  
 ```{r}
-# pct_changes <- read_excel(HELPER_FILE_PATH, 'PCT_Code_Changes') %>%
-#   #select(Update_NA_Cell,Update_Product,	Update_PCT_Code) %>%
-#   mutate(Update_NA_Cell_Number = as.numeric(Update_NA_Cell_Number),
-#     Update_Cell = str_pad(Update_NA_Cell_Number, 2, 'left', '0'))
+# pct_changes <- load_pct_changes()
 # 
 # MVI_Sample <- MVI_Sample %>%
-#   left_join(pct_changes) %>% 
-#   mutate(Cell_Number = if_else(!is.na(Update_Cell), Update_Cell, Cell_Number),
-#          NA_Cell_Number = if_else(!is.na(Update_NA_Cell_Number), Update_NA_Cell_Number, NA_Cell_Number),
-#          Card_Product = if_else(!is.na(Update_Product), Update_Product, Card_Product),
-#          Product_Code = if_else(!is.na(Update_PCT_Code), Update_PCT_Code, Product_Code)) %>% 
-#   select(-starts_with("Update"), -NA_Product_Code)
+#   left_join_suppress(pct_changes) %>%
+#   mutate(Cell_Number = if_else(!is.na(Updated_Cell_Number), Updated_Cell_Number, Cell_Number),
+#          NA_Cell_Number = if_else(!is.na(Updated_NA_Cell_Number), Updated_NA_Cell_Number, NA_Cell_Number),
+#          Card_Product = if_else(!is.na(Updated_Card_Product), Updated_Card_Product, Card_Product),
+#          Product_Code = if_else(!is.na(Updated_PCT_Code), Updated_PCT_Code, Product_Code)) %>%
+#   select(-starts_with("Updated"), -NA_Product_Code)
 ```
 
 
 ### Summary tables
-These are used for diangostics and sent to OPS and PM later on
+
+These are used for diagnostics and sent to OPS and PM later on
+
+ - Scan though them and make sure the sample requested vs sample received is not drastically different. Or at least make sure the difference is at least consistent across all cells in the market.
 
 ```{r Set up Summary Tables}
 # Set up Cell Level summary table
@@ -193,11 +144,11 @@ These are used for diangostics and sent to OPS and PM later on
 cell_lvl_summary <- PML %>% 
   select(NA_Country_Code, NA_Language_Index, File_Ext, Cell_Number, Sample_Requested) %>%
   #  Count the number of samples received for each market
-  left_join(MVI_Sample %>% 
+  left_join_suppress(MVI_Sample %>% 
              count(NA_Country_Code, NA_Language_Index, Cell_Number, File_Ext,
-                   name = "Sample_Recieved")) %>% 
+                   name = "Sample_Received")) %>% 
   # Compute differences
-  mutate(Dif = Sample_Recieved - Sample_Requested,
+  mutate(Dif = Sample_Received - Sample_Requested,
          Pct_dif = round(abs(Dif / Sample_Requested) * 100, 2))
 
 # Create the market level summary table. This is added to at the end of the script
@@ -205,57 +156,32 @@ cell_lvl_summary <- PML %>%
 mrkt_level_summary <- cell_lvl_summary %>% 
   group_by(NA_Country_Code, NA_Language_Index, File_Ext) %>% 
   summarize(Sample_Requested = sum(Sample_Requested, na.rm = T),
-            Sample_Recieved = sum(Sample_Recieved, na.rm = T),
+            Sample_Received = sum(Sample_Received, na.rm = T),
             Dif = sum(Dif, na.rm = T))
 
 # Add Market Level Summary to Diagnostic File
-addWorksheet(Diagnostic_WB, "Market_Level_Summary")
-writeData(Diagnostic_WB, "Market_Level_Summary", mrkt_level_summary)
+add_and_write_sheet(Diagnostic_WB, "Market_Level_Summary", mrkt_level_summary)
 ```
 
 ### Checking for Unique ID Duplicates
 
 ```{r}
-# Check for duplicates within and across country codes
+# Check for duplicates IDs
 # This has never happened in the past, so if any warnings are shown, it means the raw data is wrong
-dups_within_country_code <- MVI_Sample %>% 
-  group_by(NA_Country_Code, Unique_Record_Identifier15) %>% 
-  filter(n() > 1)
 
-dups_across_country_code <- MVI_Sample[duplicated(MVI_Sample$Unique_Record_Identifier15),]
+dups_ids <- MVI_Sample[duplicated(MVI_Sample$Unique_Record_Identifier15),]
 
-if (nrow(dups_within_country_code) > 0) {
-  warning("Duplicate Unique Record ID's Found within country codes")
-  warning("THIS IS A BIG DEAL AND MEANS SOMETHING IS WRONG WITH THE DATA")
-  dups_within_country_code$Unique_Record_Identifier15 %>% unique() %>% print()
-} else {
-  message("SUCCESS: No duplciate Unique Record ID's Found within country codes")
-}
-
-if (nrow(dups_across_country_code) > 0) {
-  warning("Duplicate Unique Record ID's Found across country codes")
-  warning("THIS IS A BIG DEAL AND MEANS SOMETHING IS WRONG WITH THE DATA")
-  dups_across_country_code$Unique_Record_Identifier15 %>% unique() %>% print()
-} else {
-  message("SUCCESS: No duplciate Unique Record ID's Found across country codes")
-}
+log_section_start("Unique ID Duplicates")
+log_check_result(
+  condition = nrow(dups_ids) == 0,
+  type = "Unique Record ID",
+  check_type = "dupes",
+  data = dups_ids,
+  error_message = "Duplicate Unique Record ID's found. THIS IS A BIG DEAL AND MEANS SOMETHING IS WRONG WITH THE DATA"
+)
 ```
 
-### Calculating Bad Spend Observations before deduplication
-These are once again just diagnostics for OPs and PM
-```{r Spend Checks Pre-Duplicates}
-missing_spend_predup <- MVI_Sample %>% filter(is.na(Total_OD_Spend_USD)) %>% 
-  select(Amex_Customer_ID, Unique_Record_Identifier15, NA_Country_Code, 
-         NA_Language_Index, File_Ext, Cell_Number)
-
-zero_spend_predup <- MVI_Sample %>% filter(Total_OD_Spend_USD == 0) %>% 
-  select(Amex_Customer_ID, Unique_Record_Identifier15, NA_Country_Code,
-         NA_Language_Index, File_Ext, Cell_Number)
-
-neg_spend_predup <- MVI_Sample %>% filter(Total_OD_Spend_USD < 0) %>% 
-  select(Amex_Customer_ID, Unique_Record_Identifier15, NA_Country_Code,
-         NA_Language_Index, File_Ext, Cell_Number)
-```
+### Calculating Bad Spend Observations Before Deduplication
 
 ```{r}
 # Bad spend summary table by cell number
@@ -269,11 +195,10 @@ bad_spends_predup <- MVI_Sample %>%
   arrange(NA_Country_Code, NA_Language_Index, File_Ext) 
 
 # Add bad spending to cell level summary
-cell_lvl_summary <- cell_lvl_summary %>% left_join(bad_spends_predup)
+cell_lvl_summary <- cell_lvl_summary %>% left_join_suppress(bad_spends_predup)
 
 # Write to excel to eventually send to OPS Manager
-addWorksheet(Diagnostic_WB, "Cell_Level_Summary")
-writeData(Diagnostic_WB, "Cell_Level_Summary", cell_lvl_summary)
+add_and_write_sheet(Diagnostic_WB, "Cell_Level_Summary", cell_lvl_summary)
 ```
 
 ```{r}
@@ -294,8 +219,7 @@ spend_summary <- MVI_Sample %>%
   arrange(NA_Country_Code)
 
 # Write to excel to eventually send to OPS Manager
-addWorksheet(Diagnostic_WB, "Spend_Summary (Pre-Removals)")
-writeData(Diagnostic_WB, "Spend_Summary (Pre-Removals)", spend_summary)
+add_and_write_sheet(Diagnostic_WB, "Spend_Summary (Pre-Removals)", spend_summary)
 ```
 
 ### Tenure Check and Removal
@@ -303,69 +227,72 @@ writeData(Diagnostic_WB, "Spend_Summary (Pre-Removals)", spend_summary)
 ```{r Tenure Removal}
 to_remove_tenure <- MVI_Sample %>% 
   # 1 = "Australia, 39 = "New Zealand"
-  filter((Tenure < 6 & !NA_Country_Code %in% c(1,39)) | # Tenure less than 6 not in Aus, NZ
+  filter((Tenure < 6 & !NA_Country_Code %in% c(1,39)) | # Tenure less than 6 not in AUS, NZ
          (Tenure < 12 & NA_Country_Code %in% c(1,39)) | # Tenure less than 12 in AUS, NZ
           is.na(Tenure))                                # Missing Tenure
 
 # Store in frequency format for comparison table
 # This is added at the end of the script
-to_remove_tenure_summary <- to_remove_tenure %>% 
-  group_by(NA_Country_Code, NA_Language_Index, File_Ext) %>% 
-  summarize(Tenure_Removed = n())
+to_remove_tenure_summary <- to_remove_tenure %>% count(NA_Country_Code, NA_Language_Index, File_Ext, name = "Tenure_Removed") 
 
 # Add tenure to summary table (just for diagnostic file)
 to_remove_tenure_summary_w_tenure <- to_remove_tenure %>% 
-  group_by(NA_Country_Code, NA_Language_Index, File_Ext, Tenure) %>% 
-  summarize(Tenure_Removed = n()) %>% 
+  count(NA_Country_Code, NA_Language_Index, File_Ext, Tenure, name = "Tenure_Removed") %>% 
   arrange(NA_Country_Code, NA_Language_Index, File_Ext, Tenure)
+
+# Log the results
+log_check_result(
+  condition = nrow(to_remove_tenure) == 0,
+  type = "tenure",
+  check_type = "validity",
+  count = nrow(to_remove_tenure)
+)
+
+if(nrow(to_remove_tenure) > 0) {
+  # Write to excel to eventually send to OPS Manager
+  add_and_write_sheet(Diagnostic_WB, "Removed_Tenure_Individuals", to_remove_tenure)
+  add_and_write_sheet(Diagnostic_WB, "Removed_Tenure_Summary", to_remove_tenure_summary_w_tenure)
+}
 
 # Remove wrong tenures
 MVI_Sample <- MVI_Sample %>% 
   filter(!Unique_Record_Identifier15 %in% to_remove_tenure$Unique_Record_Identifier15)
-
-if (nrow(to_remove_tenure) > 0){
-  warning(f_str("There were {nrow(to_remove_tenure)} observations removed with erroneous tenure. These are found in the Diagnostic_Files/Removed_Tenure.csv file"))
-  
-  # Write to excel to eventually send to OPS Manager
-  addWorksheet(Diagnostic_WB, "Removed_Tenure_Individuals")
-  writeData(Diagnostic_WB, "Removed_Tenure_Individuals", to_remove_tenure)
-  
-  addWorksheet(Diagnostic_WB, "Removed_Tenure_Summary")
-  writeData(Diagnostic_WB, "Removed_Tenure_Summary", to_remove_tenure_summary_w_tenure)
-  
-} else{
-  message("No observations removed because of erroneous tenure")
-}
 ```
-
 
 ```{r}
 # Adding PML data to the sample
-MVI_Sample <- MVI_Sample %>% left_join(PML)
+MVI_Sample <- MVI_Sample %>% left_join_suppress(PML)
 
 # Checking cell numbers in the PML and sample
-cell_no_not_in_pml <- MVI_Sample %>% anti_join(PML) %>% 
-  distinct(NA_Country_Code, NA_Language_Index, Cell_Number, File_Ext, NA_Cell_Number)
+cell_no_not_in_pml <- MVI_Sample %>% anti_join_suppress(PML) %>% 
+  distinct(NA_Country_Code, NA_Language_Index, Cell_Number, File_Ext)
 
-cell_no_not_in_data <- PML %>% anti_join(MVI_Sample) %>% 
-  distinct(NA_Country_Code, NA_Language_Index, Cell_Number, File_Ext, NA_Cell_Number)
+cell_no_not_in_data <- PML %>% anti_join_suppress(MVI_Sample) %>% 
+  distinct(NA_Country_Code, NA_Language_Index, Cell_Number, File_Ext)
 
-if (nrow(cell_no_not_in_pml) > 0){
-  warning("There are Cell Numbers in the sample data not found in the PML")
-  cell_no_not_in_pml %>% print()
-} else{
-  message("SUCCESS: All Cell Numbers in the sample data found in the PML")
-}
+log_section_start("Cells in PML vs Data")
+log_check_result(
+  condition = nrow(cell_no_not_in_pml) == 0,
+  type = "cell numbers in sample data not in PML",
+  check_type = "validity",
+  data = cell_no_not_in_pml,
+  success_message = "All Cell numbers in sample data are in the PML",
+  row_message = "Country {row$NA_Country_Code} | Language {row$NA_Language_Index} | Cell {row$Cell_Number} | File Ext {row$File_Ext}"
+)
 
-if (nrow(cell_no_not_in_data) > 0){
-  warning("There are Cell Numbers in the PML not found in the sample data")
-  cell_no_not_in_data %>% print()
-} else{
-  message("SUCCESS: All Cell Numbers in the PML found in the sample data")
-}
+log_check_result(
+  condition = nrow(cell_no_not_in_data) == 0,
+  type = "cell numbers in PML not in sample data",
+  check_type = "validity",
+  data = cell_no_not_in_data,
+  success_message = "All Cell numbers in PML are in the sample data",
+  row_message = "Country {row$NA_Country_Code} | Language {row$NA_Language_Index} | Cell {row$Cell_Number} | File Ext {row$File_Ext}"
+)
 ```
 
 ### Variable Checks
+
+- A common issue is PML_MR has an "Optional fee" value in Germany. Change this in the PML helper to "Y"
 
 ```{r Variable Checks}
 # Verify all values are as expected for each variable
@@ -389,12 +316,12 @@ var_checks <- MVI_Sample %>%
   gather(key = "Param", value = "Value") %>% 
   filter(!Value)
 
-if (nrow(var_checks) > 0){
-  warning("Variable found with wrong values:")
-  message(var_checks$Param)
-} else{
-  message("SUCCESS: All variables are as expected")
-}
+log_check_result(
+  condition = nrow(var_checks) == 0,
+  type = "variable values",
+  check_type = "validity",
+  data = var_checks$Param
+)
 ```
 
 ```{r Missing Language}
@@ -408,22 +335,22 @@ MVI_Sample <- MVI_Sample %>%
 missing_language <- MVI_Sample %>% 
   filter(is.na(Language)) %>% pull(Language_Code) %>% unique()
 
-if (length(missing_language) > 0){
-  warning(paste0("These Language codes have missing values: ",
-                 paste(missing_language, collapse = ", ")))
-}
+log_check_result(
+  condition = length(missing_language) == 0,
+  type = "language code",
+  check_type = "missing",
+  data = missing_language
+)
 ```
 
 ### Misaligned PCT Codes
 
 Identifying PCT Codes that are misaligned with the AIF files
 
-```{r Load in PCT, message =F}
+```{r Load in PCT}
 # Load in pct list
-aif_pct <- read_csv(PCT_LIST_PATH, col_types = 'cccccccc') %>% 
-  set_names(c('Cell_Number', 'NA_Country_Code', 'Product_Code', 'Formatted_PCT_Code', 
-              'Card_ProductAIF', 'COUNTRY', 'NA_Prd_Code'))  %>% 
-  mutate(Formatted_PCT_Code = substr(Formatted_PCT_Code, 1, 3), # Some PCT Codes come in badly formatted with a bunch of extra characters
+aif_pct <- read_csv(PCT_LIST_PATH, col_types = 'ccccccn')  %>% 
+  mutate(Formatted_PCT_Code = substr(Product_Code, 1, 3), # Some PCT Codes come in badly formatted with a bunch of extra characters
          Cell_Number = str_pad(Cell_Number, 2, pad = "0"),
          NA_Prd_Code = str_pad(NA_Prd_Code, 4, pad = "0"),
          NA_Country_Code = as.numeric(NA_Country_Code)) %>% 
@@ -434,88 +361,66 @@ aif_pct <- read_csv(PCT_LIST_PATH, col_types = 'cccccccc') %>%
 # We first check misaligned NA Product Codes
 aif_prod_codes <- aif_pct %>% distinct(Cell_Number, NA_Country_Code, NA_Prd_Code)
 
-# Check Product Code
-# This is also used to check PCT Codes later
+pct_code_spread <- aif_pct %>% 
+  group_by(NA_Country_Code, Cell_Number, NA_Prd_Code) %>%
+  mutate(Card_ProductAIF = paste(unique(Card_ProductAIF), collapse = "/")) %>% ungroup() %>%
+  distinct(NA_Country_Code, Cell_Number, NA_Prd_Code, Card_ProductAIF)
+
+# Append AIF Product Codes and Card Products to MVI Sample
 MVI_with_prod_codes <- MVI_Sample %>% 
-  select(Unique_Record_Identifier15, Cell_Number, NA_Country_Code, 
-         NA_Language_Index, NA_Product_Code, Product_Code) %>% 
+  select(Unique_Record_Identifier15, Cell_Number, NA_Country_Code, NA_Language_Index, NA_Product_Code, Product_Code, Card_Product) %>% 
   mutate(NA_Product_Code = str_pad(NA_Product_Code, 4, pad = "0")) %>% # Reformat so both files have same format
-  left_join(aif_prod_codes, by = c("Cell_Number", "NA_Country_Code")) %>% 
-  mutate(dif = NA_Product_Code != NA_Prd_Code) # Identify differences
+  left_join_suppress(pct_code_spread)
 
-na_prod_code_misalignment <- MVI_with_prod_codes %>% filter(dif)
+# Check if NA Product Codes are aligned with AIF
+na_prod_code_misalignment <- MVI_with_prod_codes %>% filter(NA_Product_Code != NA_Prd_Code)
 
-if (nrow(na_prod_code_misalignment) > 0){
-  warning("There is NA Product Code misalignment with AIF")
-  warning("Check the na_prod_code_misalignment variable")
-  
-} else{
-  message("SUCCESS: No NA Product Code misalignment with AIF")
-}
+log_check_result(
+  condition = nrow(na_prod_code_misalignment) == 0,
+  type = "NA Product Codes",
+  check_type = "validity",
+  success_message = "No NA Product Code misalignment with AIF",
+  error_message = "There is NA Product Code misalignment with AIF. I've never had this happen before, so nothing in place for it. Ask PM."
+)
 
 # Check PCT Codes
 misaligned_pct_codes <- MVI_with_prod_codes %>% 
-  select(Unique_Record_Identifier15, Cell_Number, NA_Country_Code, 
-         NA_Language_Index, NA_Product_Code, Product_Code) %>% 
-  arrange(NA_Country_Code, Cell_Number, Product_Code) %>% 
+  select(Unique_Record_Identifier15, Cell_Number, NA_Country_Code, NA_Language_Index, 
+         NA_Product_Code, Product_Code, Card_Product, Card_ProductAIF) %>% 
   # Only keep samples that are not in the aif, meaning they are misaligned
-  anti_join(aif_pct, by = c("Cell_Number", "NA_Country_Code", "Product_Code" = "Formatted_PCT_Code"))
+  anti_join(aif_pct, by = c("Cell_Number", "NA_Country_Code", "Product_Code" = "Formatted_PCT_Code"))  %>% 
+  arrange(NA_Country_Code, Cell_Number, Product_Code) 
 
-n_misaligned <- nrow(misaligned_pct_codes)
-if (n_misaligned > 0){
-  warning(f_str("There are {n_misaligned} observations with PCT Code misaligned with AIF"))
+
+log_check_result(
+  condition = nrow(misaligned_pct_codes) == 0,
+  type = "PCT Codes",
+  check_type = "counts",
+  data = misaligned_pct_codes,
+  row_message = "Country: {row$NA_Country_Code} | Cell: {row$Cell_Number} | NA Product: {row$NA_Product_Code} |> PCT_Code {row$Product_Code}",
+)
+
+# Add to the diagnostic file 
+if (nrow(misaligned_pct_codes) > 0){
   
-  print(misaligned_pct_codes)
+  add_and_write_sheet(Diagnostic_WB, "PCT_not_in_AIF_Individuals", misaligned_pct_codes)
   
-  # Save to the output workbook
-  addWorksheet(Diagnostic_WB, "PCT_not_in_AIF_Individuals")
-  writeData(Diagnostic_WB, "PCT_not_in_AIF_Individuals", misaligned_pct_codes)
+  # Summarize
+  misaligned_pct_code_sum <- misaligned_pct_codes %>% 
+    count(NA_Country_Code, NA_Language_Index, Cell_Number, NA_Product_Code, Card_ProductAIF, Product_Code, name = 'Count')  %>% 
+    mutate(Updated_NA_Cell_Number = NA,
+           Updated_NA_Product_Code = NA,
+           Updated_Card_Product = NA,
+           Updated_PCT_Code = NA,
+           )
   
-} else{
-  message("SUCCESS: No PCT Code misalignment with AIF")
-}
+  # Add to the diagnostic file
+  add_and_write_sheet(Diagnostic_WB, "PCT_not_in_AIF_Summary", misaligned_pct_code_sum)
+} 
 ```
 
-```{r }
-# There's probably a better way to display this information than the current system
-# The design was taken straight from the SAS output
-
-
-# Summarize misalignment by product code
-misaligned_pct_codes_sum <- misaligned_pct_codes %>% select(-Unique_Record_Identifier15) %>% 
-  group_by(NA_Country_Code, NA_Language_Index, Cell_Number, Product_Code) %>% 
-  summarize(Count = n()) %>% ungroup()
-
-# Get every pct code for a given NA product code
-# Some NA product Codes can have up to 80 different PCT Codes
-pct_code_spread <- aif_pct %>% select(-Product_Code) %>% 
-  group_by(NA_Country_Code, Cell_Number, NA_Prd_Code) %>% 
-  mutate(Card_ProductAIF = paste(unique(Card_ProductAIF), collapse = "/")) %>% 
-  ungroup() %>% 
-  group_by(NA_Country_Code, 
-           Cell_Number,
-           NA_Prd_Code,
-           Card_ProductAIF) %>% 
-  mutate(ord = paste0("PCT_Code_", row_number())) %>% 
-  ungroup() %>% 
-  spread(key = ord, value = Formatted_PCT_Code)
-
-# Get the variable names (PCT_Code_1 - PCT_Code_77) for the purpose of ordering
-pcts <- names(pct_code_spread)[str_detect(names(pct_code_spread), "PCT_Code_[0-9]")]
-
-# Append AIF pct codes to misaligned summary table
-# This is sent to OPS to tell us what to do with the misalignment
-misaligned_pct_codes_sum <- misaligned_pct_codes_sum %>% 
-  left_join(pct_code_spread) %>% 
-  select(NA_Country_Code, Cell_Number, NA_Language_Index,
-         "PML NA_Product_Code" = NA_Prd_Code,
-         Sample_PCT_Code = Product_Code,
-         Card_ProductAIF, Count,
-         mixedsort(pcts)) # This orders the pct_codes properly
-
-# Save to the output workbook
-addWorksheet(Diagnostic_WB, "PCT_not_in_AIF_Summary")
-writeData(Diagnostic_WB, "PCT_not_in_AIF_Summary", misaligned_pct_codes_sum) 
+```{r}
+# Save Diagnostics file for Ops -- Not Final
 saveWorkbook(Diagnostic_WB, file = f_str("../Files_to_send/{MVIQ}_Diagnostics-{Sys.Date()}.xlsx"), overwrite = TRUE)
 ```
 
@@ -524,18 +429,18 @@ saveWorkbook(Diagnostic_WB, file = f_str("../Files_to_send/{MVIQ}_Diagnostics-{S
 Send the following file to OPS
   - `MVI_Diagnositcs_QUARTER.xlsx` found in the `Files_to_send` folder
   
-But, instead of attaching files, copy the file to the `\\pm1\33-626\Quantitative\Sampling-Weighting\Communications\QUARTER` folder and send the link. Here is an example email.
+But, instead of attaching files, copy the file to the `{PM_DRIVE}\Quantitative\Sampling-Weighting\Diagnostics\QUARTER` folder and send the link. Here is an example email.
 
     Hi,
     
-    Here is a diagnostic file with some initial findings from the data for you to review. Please let us know what you think: `FILE`.
+    Here is a diagnostic file with some initial findings from the data for you to review. Please let us know what you think: {FILE PATH}.
     
     The file contains 7 sheets.
       - Market_Level_Summary: Summary of sample received vs sample requested by market
-              - Nothing appears to be too alarming in the differences between requested and recieved samples. 
+              - Nothing appears to be too alarming in the differences between requested and received samples. 
       - Cell_Level Summary: Summary of sample received vs sample requested by cell number
-              - Nothing appears to be too alarming in the differences between requested and recieved samples. 
-              - The largest percent differences occur in markets where all cells recieved the same amount of extra sample. For example, every cell in Belgium recieved 9 more samples than requested, which resulted in a 40% difference in one cell between requested and recieved.
+              - Nothing appears to be too alarming in the differences between requested and received samples. 
+              - The largest percent differences occur in markets where all cells received the same amount of extra sample. For example, every cell in Belgium received 9 more samples than requested, which resulted in a 40% difference in one cell between requested and received.
     
     -  Spend_Summary (Pre-Removals): Spend summary statistics prior to removing any observations
     
@@ -545,25 +450,21 @@ But, instead of attaching files, copy the file to the `\\pm1\33-626\Quantitative
     THIS IS WHERE WE NEED ACTION TO MOVE ON TO THE NEXT STEPS.
     
     - PCT_not_in_AIF_Individuals & PCT_not_in_AIF_Summary: PCT Codes from the PML that do not line up with the AIF (based on country code, cell number, and NA product code)
-        - Therer are only 4 instances this quarter.
+        - There are only 4 instances this quarter.
         - We need action taken in the summary file.
-        -	The column “Sample_PCT_Code” is the code from the sample data that was not found in the AIF file. The columns PCT_Code_1 through PCT_Code_80 are the PCT codes in the AIF file for the given NA Product Code.
         -	Let us know what you want us to do with the observations with these wrong PCT codes (remove, change, or something else).
+          - Please update the empty columns in the summary sheet with the updates
     
     Let me know if you have any questions.
 
 #### **When PM gets back on which to remove, update the next chunk**
 
-
   - If they say you can remove all samples then just proceed with running the next chunk
   
   
   - If they want you to update the values, then follow these steps
-    1. Create a new sheet in the helper file called "PCT_Code_Changes" and add 4 columns
-        - Unique_Record_Identifier15, Update_NA_Cell,Update_Product,	Update_NA_Product_Code
-        - Ideally the PM/OPS provides the information to you in this format already
-        - It's fine if there's more columns, just make sure we have the 4 listed above
-    2. Go back up to the top of the code to the 'Load in the data' chunk, and just run the single line that loads in the mvi_sample from the temporary data folder. This resets the data to the original state before we removed anything or made changes.
+    1. Copy the sheet "PCT_not_in_AIF_Summary" to helper file and rename it to "PCT_Code_Changes"
+    2. Go back up to the top of the code to the 'Load in the data' chunk, and just run the single line that loads in the MVI_Sample from the temporary data folder. This resets the data to the original state before we removed anything or made changes.
     3. Uncomment the code chunk under the header "Updating PCT Codes that were misaligned"
     4. Rerun everything under the loading in, and when you get to pct code misaligned, nothing should be misaligned anymore. 
     5. You do not need to resend the email of diagnostics. The diagnostic file will be updated, and will be sent at the end of the process. 
@@ -583,16 +484,12 @@ to_remove_pct_codes <- misaligned_pct_codes
 #   filter(!(NA_Country_Code == X2 & Cell_Number == Y2 & Product_Code == Z2)) %>%
 
 n_before <- nrow(MVI_Sample)
+MVI_Sample <- MVI_Sample %>% anti_join(to_remove_pct_codes, by = "Unique_Record_Identifier15")
 
-MVI_Sample <- MVI_Sample %>% 
-  anti_join(to_remove_pct_codes, by = "Unique_Record_Identifier15")
-
-message(f_str("There were {n_before - nrow(MVI_Sample)} samples removed with erroneous PCT Codes"))
+cli_alert_info("There were {n_before - nrow(MVI_Sample)} samples removed with erroneous PCT Codes")
 
 # For Summary table at the end
-to_remove_pct_codes_summary <- to_remove_pct_codes %>% 
-  group_by(NA_Country_Code, NA_Language_Index) %>% 
-  summarize(Misaligned_PCTs = n())
+to_remove_pct_codes_summary <- to_remove_pct_codes %>% count(NA_Country_Code, NA_Language_Index, name = "Misaligned_PCTS")
 ```
 
 ```{r}
@@ -608,6 +505,9 @@ amex_id_dups <- MVI_Sample %>%
   group_by(Amex_Customer_ID) %>% 
   filter(n() > 1) 
 
+# For summary table at the end
+amex_dups_summary <- amex_id_dups %>% freq_table(c("NA_Country_Code", "NA_Language_Index", "File_Ext"))
+
 amex_id_dups_within_country <- MVI_Sample %>% 
   group_by(NA_Country_Code, Amex_Customer_ID) %>% 
   filter(n() > 1) 
@@ -617,29 +517,38 @@ amex_id_dups_across_country <- amex_id_dups %>% anti_join(amex_id_dups_within_co
 n_dups <- n_distinct(amex_id_dups$Amex_Customer_ID)
 n_dups_across <- n_distinct(amex_id_dups_across_country$Amex_Customer_ID)
 
-message(f_str("There are {n_dups} duplicate Amex Customer IDs, leading to {nrow(amex_id_dups) - n_dups} records being removed."))
+log_check_result(
+  condition = n_dups == 0,
+  type = "Amex Customer IDs",
+  check_type = "dupes",
+  count = n_dups,
+  error_message = "There are {n_dups} duplicate Amex Customer IDs, leading to {nrow(amex_id_dups) - n_dups} records being removed. This is normal.",
+)
 
-if (n_dups_across > 0){
-  warning(f_str("Of these, there are {n_dups_across} duplicate Amex Customer IDs across countries, with {nrow(amex_id_dups_across_country)} total duplicate records. Please consult the PM about what to do about these."))
-  warning('Ask them now. Copy the file `../Files_to_Send/Amex_ID_dups_across_country.csv` to the communications folder and ask them in an email.')
-  
-  amex_id_dups_across_country %>% 
-    select(NA_Country_Code, NA_Language_Index, File_Ext, Cell_Number, Amex_Customer_ID, Unique_Record_Identifier15, Tenure, Total_OD_Spend_USD) %>% 
-    write_csv("../Files_to_Send/Amex_ID_dups_across_country.csv")
+log_check_result(
+  condition = n_dups_across == 0,
+  type = "Amex Customer IDs across countries",
+  check_type = "dupes",
+  count = n_dups_across,
+  error_message = "There are {n_dups_across} duplicate Amex Customer IDs across countries, with {nrow(amex_id_dups_across_country)} total duplicate records. Please consult the PM about what to do about these."
+)
+
+if (nrow(amex_id_dups) > 0) {
+  # Write to excel to send to OPS Manager
+  add_and_write_sheet(Diagnostic_WB, "AMEXID_Dupes_Inds", amex_id_dups)
+  add_and_write_sheet(Diagnostic_WB, "AMEXID_Dupes_Summary", amex_dups_summary)
 }
-```
 
+if (nrow(amex_id_dups_across_country) > 0) {
+  # Write to excel to send to OPS Manager
+  add_and_write_sheet(Diagnostic_WB, "AMEXID_Dupes_Inds_Across_Country", amex_id_dups_across_country)
+  
+  # Summarize
+  amex_dups_across_summary <- amex_id_dups_across_country %>% freq_table(c("NA_Country_Code", "NA_Language_Index", "File_Ext"))
 
-```{r}
-amex_dups_summary <- amex_id_dups %>% 
-  freq_table(c("NA_Country_Code", "NA_Language_Index", "File_Ext"))
-
-# Write to excel to send to OPS Manager
-addWorksheet(Diagnostic_WB, "AMEXID_Dupes_Inds")
-writeData(Diagnostic_WB, "AMEXID_Dupes_Inds", amex_id_dups)
-
-addWorksheet(Diagnostic_WB, "AMEXID_Dupes_Summary")
-writeData(Diagnostic_WB, "AMEXID_Dupes_Summary", amex_dups_summary)
+  # Add to the diagnostic file
+  add_and_write_sheet(Diagnostic_WB, "AMEXID_Dupes_Summary_Across_Country", amex_dups_across_summary)
+}
 ```
 
 ```{r}
@@ -671,15 +580,11 @@ MVI_Sample_no_dups <-  MVI_Sample %>%
 to_remove_amex_id_dupes <- anti_join(amex_id_dups, MVI_Sample_no_dups, by = "Unique_Record_Identifier15")
 
 to_remove_amex_id_dupes_summary <- to_remove_amex_id_dupes %>% 
-  group_by(NA_Country_Code, NA_Language_Index, File_Ext) %>% 
-  summarize(Amex_ID_dupes = n())
+  count(NA_Country_Code, NA_Language_Index, File_Ext, name = "Amex_ID_dupes")
 
 # Write to excel to send to OPS Manager
-addWorksheet(Diagnostic_WB, "Rem_AMEXID_Dupes_Inds")
-writeData(Diagnostic_WB, "Rem_AMEXID_Dupes_Inds", to_remove_amex_id_dupes)
-
-addWorksheet(Diagnostic_WB, "Rem_AMEXID_Dupes_Summary")
-writeData(Diagnostic_WB, "Rem_AMEXID_Dupes_Summary", to_remove_amex_id_dupes_summary)
+add_and_write_sheet(Diagnostic_WB, "Rem_AMEXID_Dupes_Inds", to_remove_amex_id_dupes)
+add_and_write_sheet(Diagnostic_WB, "Rem_AMEXID_Dupes_Summary", to_remove_amex_id_dupes_summary)
 ```
 
 ```{r}
@@ -691,26 +596,20 @@ rm(MVI_Sample)
 ### Creating New Variables
 
 
-```{r Create new variables, message=F, warning=F}
-# Basically what's going on in the next few lines is we create a dataframe with all of the unique product codes in the sample dataset and then assign values for each of the created variables based on the conditions in the CV_Product_Codes sheet.
-# We then join this to original dataframe by product code. 
-
+```{r Create new variables}
 # Load in new variable rules
-cv_product_codes <- read_excel(HELPER_FILE_PATH, sheet = "CV_Product_Codes")
-
-# Create a table of product codes
-cv_vars_tab <- MVI_Sample_no_dups %>% distinct(NA_Product_Code)
-
-# Append the new variables to the product code table based on the PM's instructions
-for (var in CV_VARS) cv_vars_tab <- cv_vars_tab %>% add_cv_var(var, cv_product_codes)
+cv_product_codes <- load_cv_product_codes()
 
 # Apply the new variables to sample
-MVI_Sample_new_vars <- MVI_Sample_no_dups %>% left_join(cv_vars_tab)
+MVI_Sample_new_vars <- MVI_Sample_no_dups %>% add_cv_product_codes(cv_product_codes)
 ```
 
 ```{r Create new variables 2}
-MVI_Sample_new_vars <- MVI_Sample_new_vars %>% 
+MVI_Sample_new_vars <- MVI_Sample_new_vars %>% left_join_suppress(aif_pct) %>% 
   mutate(
+    # Products not in the AIF get to keep their names
+    Card_Product = if_else(is.na(Card_ProductAIF), Card_Product, Card_ProductAIF), 
+    
     CV_COBRAND_AIRLINES = case_when(
     	NA_Product_Code %in% c('3556', '3570') ~ "",
     	CV_COBRAND == "TRUE" & CV_AIRLINE == "TRUE" ~ "Yes",
@@ -741,51 +640,74 @@ MVI_Sample_new_vars <- MVI_Sample_new_vars %>%
                            dYOB <  1989 ~ "Older Millennials: 1980 - 1988",
                            dYOB <  1997 ~ "Younger Millennials: 1989 - 1996",
                            dYOB >= 1997 ~ "Generation Z: 1997 and later"),
+    
+    # These two variables are just blanks
+     MYCA_Indicator = "",
+     Paperless_Indicator = "",
 
-  Email = paste0(Unique_Record_Identifier15, "@amexgabmsurvey.com") # Why are we doing this, when we do not include it in the output?
+    Email = paste0(Unique_Record_Identifier15, "@amexgabmsurvey.com") # Why are we doing this, when we do not include it in the output?
          )
 ```
 
+
 #### Remove people with wrong member since or DOB
 
-```{r Member Since and DOB flags}
-# THIS MAY NEED TO BE CHANGED. IF IT'S QUARTER 1, WE SHOULD BE LOOKING AT Member_Since > (YEAR - 1)
-member_since_flag <- MVI_Sample_new_vars %>% 
-  filter(Member_Since < 1920 | Member_Since > YEAR)
+```{r Member Since Check}
+# Check for Member Since
+year_cond <- ifelse(Q == "Q1", YEAR - 1, YEAR) # IF IT'S QUARTER 1, WE SHOULD BE LOOKING AT Member_Since > (YEAR - 1)
 
-dob_flag <- MVI_Sample_new_vars %>% 
-  filter(dYOB < 1850 | dYOB > YEAR - 17)
-
-# Remove flagged observations
-MVI_Sample_new_vars <- MVI_Sample_new_vars %>% 
-  filter(!Unique_Record_Identifier15 %in% 
-           c(member_since_flag$Unique_Record_Identifier15, 
-             dob_flag$Unique_Record_Identifier15))
-
-# Get counts for summary table
-to_remove_ms_summary <- member_since_flag  %>% 
-  group_by(NA_Country_Code, NA_Language_Index, File_Ext) %>% 
-  summarize(Member_Since = n())
-
-to_remove_dob_summary <- dob_flag %>% 
-  group_by(NA_Country_Code, NA_Language_Index, File_Ext) %>% 
-  summarize(YOB = n())
-
-to_remove_ms_dob <- member_since_flag %>% 
-  bind_rows(dob_flag) %>% 
+to_remove_member_since <- MVI_Sample_new_vars %>% 
+  filter(Member_Since < 1930 | Member_Since > year_cond) %>% arrange(Member_Since) %>% 
   select(NA_Country_Code, NA_Language_Index, File_Ext, Amex_Customer_ID, Unique_Record_Identifier15, Member_Since, dYOB, Tenure)
 
+log_check_result(
+  condition = nrow(to_remove_member_since) == 0,
+  type = "Member Since",
+  check_type = "counts",
+  count = nrow(to_remove_member_since),
+  error_message = "Found {count} invalid Member Since values. Earliest is {min(to_remove_member_since$Member_Since, na.rm = T)} and latest is {max(to_remove_member_since$Member_Since, na.rm = T)}."
+)
+  
+# Get counts for summary table (For final counts, not diagnostic file)
+to_remove_ms_summary <- to_remove_member_since %>% count(NA_Country_Code, NA_Language_Index, File_Ext, name = "Member_Since")
+
 # Write to excel to send to OPS Manager
-addWorksheet(Diagnostic_WB, "Removed_Member_Since_DOB")
-writeData(Diagnostic_WB, "Removed_Member_Since_DOB", to_remove_ms_dob)
+if (nrow(to_remove_member_since) > 0) add_and_write_sheet(Diagnostic_WB, "Removed_Member_Since", to_remove_member_since)
+```
+
+
+```{r Date of Birth Check}
+# Check for Date of Birth
+to_remove_dob <- MVI_Sample_new_vars %>% 
+  filter(dYOB < 1850 | dYOB > YEAR - 17) %>% 
+  select(NA_Country_Code, NA_Language_Index, File_Ext, Amex_Customer_ID, Unique_Record_Identifier15, Member_Since, dYOB, Tenure)
+
+log_check_result(
+  condition = nrow(to_remove_dob) == 0,
+  type = "Date of Birth",
+  check_type = "counts",
+  count = nrow(to_remove_dob),
+  error_message = "Found {count} invalid Date of Birth values. Earliest is {min(to_remove_dob$dYOB, na.rm = T)} and latest is {max(to_remove_dob$dYOB, na.rm = T)}."
+)
+
+# Get counts for summary table (For final counts, not diagnostic file)
+to_remove_dob_summary <- to_remove_dob %>% count(NA_Country_Code, NA_Language_Index, File_Ext, name = "Date_of_Birth")
+
+# Write to excel to send to OPS Manager
+if (nrow(to_remove_dob) > 0) add_and_write_sheet(Diagnostic_WB, "Removed_DOB", to_remove_dob)
+```
+
+```{r}
+# Remove flagged observations for Member Since and DOB
+MVI_Sample_new_vars <- MVI_Sample_new_vars %>% 
+  anti_join(to_remove_member_since, by = "Unique_Record_Identifier15") %>%
+  anti_join(to_remove_dob, by = "Unique_Record_Identifier15") 
 ```
 
 
 ```{r Final Sample Counts}
 # Final counts for market level summary
-final_counts <- MVI_Sample_new_vars %>% 
-  group_by(NA_Country_Code, NA_Language_Index, File_Ext) %>% 
-  summarize(Final_Sample = n())
+final_counts <- MVI_Sample_new_vars %>% count(NA_Country_Code, NA_Language_Index, File_Ext, name = "Final_Counts")
 ```
 
 ```{r}
@@ -796,48 +718,20 @@ rm(MVI_Sample_no_dups)
 ### Weighting Segments
 
 ```{r Weighting Segments}
-# Weighting Segments
-# The weighting segment sheet doesn't include XS or XT, 
-# So to make it easier, I'm just having one line for each segment with it's respective tenure and spend splits
-# Then we create the 6 conditions for the various options given these splits
-weighting_segments <- read_excel(HELPER_FILE_PATH, sheet = "Weighting_Segments") %>%
-  filter(str_detect(WGT_Bucket, "MVI")) %>% # Removes SBS weights if they weren't removed in the helper file
-  filter(str_detect(Tenure_Split, "\\+") & str_detect(Spend_Split, "\\+")) %>% # HTHS
-  # Turn rows with multiple NA_Product_Codes into their own row to allow for joining with MVI data
-  separate_rows(NA_Product_Code, sep = ", ") %>% 
-  mutate(NA_Product_Code = trimws(NA_Product_Code), # just in case there were extra spaces
-         pc_cond = paste0("NA_Product_Code == ", NA_Product_Code),
-         # Turn {QUARTER}-9{SEGMENT} into {QUARTER}{SEGMENT}
-         WV_Weighting_Segment = str_remove(WGT_Bucket, "-[0-9]"), 
-         # Extract numeric values from tenure and spend conditions
-         Tenure_Split = parse_number(Tenure_Split),
-         Spend_Split = parse_number(Spend_Split) * 1000,
-         )
-  
-# Create Different conditions for each segment
-MVI_Sample_ws <- MVI_Sample_new_vars %>% left_join(weighting_segments) %>% 
-  mutate(Tenure_Bucket = case_when(Tenure >= 6 & Tenure < Tenure_Split ~ "LT",
-                                   Tenure >= Tenure_Split ~ "HT",
-                                   TRUE ~ "XT"), # This can't occur as Tenure <6 is removed above
-         Spend_Bucket  = case_when(Total_OD_Spend_USD > 0 & Total_OD_Spend_USD < Spend_Split ~ "LS",
-                                   Total_OD_Spend_USD >= Spend_Split ~ "HS",
-                                   TRUE ~ "XS"),
-         
-         # Create the weighting segment
-         Weighting_Segment = if_else(Spend_Bucket == "XS",
-                                     "MVINOSPEND",
-                                     # Simple as combine the segment name, tenure bucket, and spend bucket (ie, MVIQ3230101 + HT + HS = MVIQ3230101HTHS)
-                                     paste0(WV_Weighting_Segment, Tenure_Bucket, Spend_Bucket))) %>% 
-  select(-ends_with("Bucket"), everything())
+# Load in weighting segments
+weighting_segments <- load_weighting_segments()
+
+# Apply weighting segments
+MVI_Sample_ws <- MVI_Sample_new_vars %>% apply_weighting_segments(weighting_segments)
 ```
 
 ```{r}
 # Table showing observed minimums and maximums for tenure and spend for each weighting segment
-ws_table <- MVI_Sample_ws %>% group_by(Weighting_Segment, Tenure_Split, Spend_Split) %>%  
+ws_table <- MVI_Sample_ws %>% group_by(Weighting_Segment, Tenure_Split, Spend_Split) %>%
   summarize(min_t = min(Tenure),
             max_t = max(Tenure),
             min_s = min(Total_OD_Spend_USD),
-            max_s = max(Total_OD_Spend_USD)) %>% 
+            max_s = max(Total_OD_Spend_USD)) %>%
   make_nice_table("Weighting Segments")
 ```
 
@@ -854,6 +748,16 @@ sci_no_to_fix <- MVI_Sample_ws %>%
   distinct(NA_Country_Code, Product_Code) %>% 
   filter(str_detect(Product_Code, "[0-9]E[0-9]"))
 
+log_check_result(
+  condition = nrow(sci_no_to_fix) == 0,
+  type = "Product Codes",
+  check_type = "validity",
+  data = sci_no_to_fix,
+  success_message = "No product codes with scientific notation",
+  error_message = "There are {nrow(sci_no_to_fix)} product codes with scientific notation. This is not a problem, but it will cause issues when writing to excel. You will need to manually change '#' back to 'E' in excel.",
+  row_message = "Country: {row$NA_Country_Code} | Product Code: {row$Product_Code}"
+)
+
 MVI_Sample_ws <- MVI_Sample_ws %>% 
   mutate(Product_Code = ifelse(str_detect(Product_Code, "[0-9]E[0-9]"),
                                gsub("E", "#", Product_Code),
@@ -862,23 +766,6 @@ MVI_Sample_ws <- MVI_Sample_ws %>%
 
 
 #### Calculating Bad Spend Observations after Deduplication
-
-```{r Spend Checks After-Duplicates}
-missing_spend <- MVI_Sample_ws %>% filter(is.na(Total_OD_Spend_USD)) %>% 
-  select(Amex_Customer_ID, Unique_Record_Identifier15, NA_Country_Code, NA_Language_Index, File_Ext, Cell_Number)
-
-zero_spend <- MVI_Sample_ws %>% filter(Total_OD_Spend_USD == 0) %>% 
-  select(Amex_Customer_ID, Unique_Record_Identifier15, NA_Country_Code, NA_Language_Index, File_Ext, Cell_Number)
-
-neg_spend <- MVI_Sample_ws %>% filter(Total_OD_Spend_USD < 0) %>% 
-  select(Amex_Customer_ID, Unique_Record_Identifier15, NA_Country_Code, NA_Language_Index, File_Ext, Cell_Number)
-
-# Write to csv
-# These aren't sent anywhere but are kept just in case
-missing_spend %>% write_csv(f_str("../Diagnostic_Files/{MVIQ}_Missing.csv"), na = "")
-zero_spend %>% write_csv(f_str("../Diagnostic_Files/{MVIQ}_Zero_Spend.csv"), na = "")
-neg_spend %>% write_csv(f_str("../Diagnostic_Files/{MVIQ}_Negative_Spend.csv"), na = "")
-```
 
 ```{r}
 # Bad spend summary table by cell number
@@ -891,10 +778,9 @@ bad_spends <- MVI_Sample_ws %>%
   ) %>% 
   arrange(NA_Country_Code, NA_Language_Index, File_Ext) %>% ungroup()
 
-bad_spends_countrylevel <- bad_spends %>% 
-  select(-Cell_Number) %>% 
+bad_spends_countrylevel <- bad_spends %>% select(-Cell_Number) %>% 
   group_by(NA_Country_Code, NA_Language_Index, File_Ext) %>% 
-  summarize(across(.fns = ~sum(., na.rm = T)))
+  summarize(across(everything(), .fns = ~sum(., na.rm = T)))
 ```
 
 #### Create Market Level Summary Table
@@ -902,18 +788,18 @@ bad_spends_countrylevel <- bad_spends %>%
 ```{r}
 # This contains all the summary tables we created through the code
 mrkt_level_summary <- mrkt_level_summary %>% 
-  left_join(final_counts) %>% 
-  left_join(to_remove_dob_summary) %>% 
-  left_join(to_remove_ms_summary) %>% 
-  left_join(to_remove_tenure_summary) %>% 
-  left_join(to_remove_pct_codes_summary) %>%
-  left_join(to_remove_amex_id_dupes_summary) %>% 
-  left_join(bad_spends_countrylevel) %>% 
+  left_join_suppress(final_counts) %>% 
+  left_join_suppress(to_remove_dob_summary) %>% 
+  left_join_suppress(to_remove_ms_summary) %>% 
+  left_join_suppress(to_remove_tenure_summary) %>% 
+  left_join_suppress(to_remove_pct_codes_summary) %>%
+  left_join_suppress(to_remove_amex_id_dupes_summary) %>% 
+  left_join_suppress(bad_spends_countrylevel) %>% 
   adorn_totals('row')
 
 # Write to excel to send to OPS Manager
-writeData(Diagnostic_WB, "Market_Level_Summary", mrkt_level_summary)
-saveWorkbook(Diagnostic_WB, file = f_str("../Files_to_send/{MVIQ}_Diagnostics_{Sys.Date()}.xlsx"), overwrite = TRUE)
+add_and_write_sheet(Diagnostic_WB, "Market_Level_Summary", mrkt_level_summary)
+saveWorkbook(Diagnostic_WB, file = f_str("../Files_to_send/{MVIQ}_Diagnostics_Final_{Sys.Date()}.xlsx"), overwrite = TRUE)
 ```
 
 ### Reformatting to match what Qualtrics is expecting
@@ -934,20 +820,20 @@ MVI_Sample_ws <- MVI_Sample_ws %>%
          )
 ```
 
+### Saving Postal Codes for Bob Crown
+
+```{r}
+postals <- MVI_Sample_ws %>% 
+  select(Amex_Customer_ID, Unique_Record_Identifier15, NA_Product_Code, Country,
+         Language_Code, Postal_Code)
+
+postals %>% write_csv(f_str("../Files_to_send/{MVIQ}_Postal_Codes_{Sys.Date()}.csv"), na = "")
+```
 
 ### Creating Final Sample
 
 ```{r Create Final Sample}
-# Add AIF PCT Codes (Old Step 5)
-MVI_final_postals <- MVI_Sample_ws %>% left_join(aif_pct %>% mutate(aif = TRUE, 
-                                                                    NA_Country_Code = str_pad(NA_Country_Code, 2, "left", "0"))) %>% 
-  mutate(Card_Product = if_else(is.na(aif), Card_Product, Card_ProductAIF), # Products not in the AIF get to keep their names
-         # These two variables are just blanks
-         MYCA_Indicator = "",
-         Paperless_Indicator = ""
-         ) 
-
-MVI_final <- MVI_final_postals %>% 
+MVI_final <- MVI_Sample_ws %>% 
   select(Cell_Number,
          COUNTRY_CODE = NA_Country_Code,
          Product_Code,
@@ -1001,17 +887,8 @@ MVI_final <- MVI_final_postals %>%
 ```
 
 ```{r}
-# Save the postals and checking db in case you want to close R and not have to rerun everything to write them for Bob after everything is created
-# They can be reloaded in down below
-
-save(MVI_final_postals, file=f_str("../Temporary_Data/{MVIQ}_Postals.Rdata"))
+# Save the checking db for quick changes after the fact
 save(MVI_final, file=f_str("../Temporary_Data/{MVIQ}_Checking_{Sys.Date()}.Rdata"))
-```
-
-
-```{r}
-# Clear up memory
-rm(MVI_Sample_ws)
 ```
 
 ```{r Writing Merged File with Checks}
@@ -1039,7 +916,7 @@ last_save_date <- '2023-10-03' # last time you saved the mvi_final dataset
 Send the following file to OPS (there are new sheets added)
   - `MVI_Diagnositcs_QUARTER.xlsx` found in the `Files_to_send` folder
   
-Once again, save a copy of the file in the `Communications/Quarter` folder and send a link. You can override the old file because the new file has the old data in it. You also are sending the final csv for OPs and the PM to make their checks. 
+Once again, save a copy of the file in the `Diagnostics/Quarter` folder and send a link. You can override the old file because the new file has the old data in it. You also are sending the final csv for OPs and the PM to make their checks. 
   - `MVI_Final_Checking-DATE.csv`
 
 Importantly, you need to create an excel workbook from the csv manually and send that. Open the csv, and reformat the numeric variables that need padded zeroes. I usually insert a column at the start of the file (i.e., column A) and Use the TEXT function in excel and use the following zeroes formats. Then copy and paste AS VALUES into the respective columns to overwrite the original data. Once again. This is just for convenience for OPS, this does not affect the data in the official CSV or data. 
@@ -1056,29 +933,30 @@ Formats:
 
 Importantly, the non-english characters in Subject_Line_Insertion will still be messed up in the excel. This is okay, since they are never changed in the csv.
 
-once this is done, copy the csv and xlsx into the `\\pm1\33-626\Quantitative\Sampling-Weighting\All Sample Files\QUARTER` folder.
+once this is done, copy the csv and xlsx into the `{PM_DRIVE}\Quantitative\Sampling-Weighting\All Sample Files\QUARTER` folder.
 
 Here is an example email
     
     Hi,
     
-    The final sample has been prepped. Please refer again to the diagnostic file (with new sheets added, and old ones updated): 
+    The final sample has been prepped. Please refer again to the diagnostic file (with new sheets added, and old ones updated): {FILE PATH}
     
     There were 6 sheets added.
       - AMEXID_Dupes_Ind & AMEXID_Dupes_Summary: Individuals and summary of all duplicate amex id observations
       - Rem_AMEXID_Dupes_Ind & Rem_AMEXID_Dupes_Summary: Individuals removed for having a duplicate Amex Customer ID. We kept the one observation with the highest priority. 
         - There were 1214 duplicate Amex Customer IDs, leading to 1221 records being removed.
-        -	There were no odd duplicates across countries like two quarters ago.
-    
-      - Removed_Member_Since_DOB: People who were removed for having unlikely dates of birth or member_since values. 
-        - This quarter, 5 people were removed because of unlikey member_since values (>2023 or < 1920)
+
+      - Removed_Member_Since: People who were removed for having unlikely member_since values. 
+        - 5 people were removed because of unlikey member_since values (>2023 or < 1930)
+        
+      - Removed_DOB: People who were removed for having unlikely dates of birth (Age <= 17 or DOB < 1850)
     
       - Market_lvl_Summary: Final summary of all counts and removals that were done by market. It also includes the number of no spend, zero spend, and negative spend per market.
     
     
     Here are the final merged csv and excel for you to perform your checks. Excel messes up some formatting, but the csv contains all the true formatting of variables and is the file we use for the individual CSVs. For example, if you open the .xlsx file or if you open the .csv in excel, the Subject_Line_Insertion will look messed up for non-english characters. This is just an excel issue, the values are fine in the csv. You can double check them in the csv in a text editor like Notepad++. However, We reformatted numeric variables that need padded zeroes for your convenience.
-    -	\\pm1\33-626\Quantitative\Sampling-Weighting\All Sample Files\Q3MVI_Final_Checking_MVIQ323.xlsx
-    -	Here’s the csv: \\pm1\33-626\Quantitative\Sampling-Weighting\All Sample Files\Q3\MVI_Final_Checking_MVIQ323.csv
+    -	{EXCEL FILE PATH}
+    -	Here’s the csv: {CSV FILE PATH}
     -	Note there are a couple extra variables at the end to help with checking. These are removed later.
              # FileExt,
              # Date_of_Birth,
@@ -1092,13 +970,8 @@ Here is an example email
 
 ```{r Writing Merged File}
 # Writing Official Merged File
-# Get rid of checking variables
 MVI_final <- MVI_final %>% 
-  select(-c(File_Ext,
-           Date_of_Birth,
-           CV_COBRAND,
-           CV_AIRLINE,
-           COB))
+  select(-c(File_Ext, Date_of_Birth, CV_COBRAND, CV_AIRLINE, COB)) # Get rid of checking variables
          
 MVI_final %>% select(-Filename) %>% write_csv(f_str("../All_Sample_Files/{MVIQ}_Final_{Sys.Date()}.csv"), na = "")
 ```
@@ -1113,19 +986,4 @@ MVI_final %>%
   group_walk(~write_csv(.x, file.path(MARKET_FILES_PATH, .y), na = ""))
 ```
 
-### Postal Codes for Bob Crown
 
-```{r}
-# If you closed r and just want to load in the postals db, uncomment this line
-# load("../Temporary_Data/{MVIQ}_Postals.Rdata")
-
-postals <- MVI_final_postals %>% 
-  select(Amex_Customer_ID,
-         Unique_Record_Identifier15,
-         NA_Product_Code,
-         Country,
-         Language_Code,
-         Postal_Code)
-
-postals %>% write_csv(f_str("../Files_to_send/{MVIQ}_Postal_Codes_{Sys.Date()}.csv"), na = "")
-```
