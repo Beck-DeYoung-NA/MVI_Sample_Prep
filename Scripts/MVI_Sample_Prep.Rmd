@@ -349,11 +349,12 @@ Identifying PCT Codes that are misaligned with the AIF files
 
 ```{r Load in PCT}
 # Load in pct list
-aif_pct <- read_csv(PCT_LIST_PATH, col_types = 'ccccccn')  %>% 
+aif_pct <- read_excel(PCT_LIST_PATH) %>% 
+  set_names(c("NA_Prd_Code",	"Cell_Number",	"Product_Code",	"Card_ProductAIF",	"COUNTRY", "NA_Country_Code",	"Count",	"Flag")) %>% 
   mutate(Formatted_PCT_Code = substr(Product_Code, 1, 3), # Some PCT Codes come in badly formatted with a bunch of extra characters
          Cell_Number = str_pad(Cell_Number, 2, pad = "0"),
          NA_Prd_Code = str_pad(NA_Prd_Code, 4, pad = "0"),
-         NA_Country_Code = as.numeric(NA_Country_Code)) %>% 
+         NA_Country_Code = as.numeric(NA_Country_Code)) %>% select(-Count, -Flag) %>% 
   distinct()
 ```
 
