@@ -36,6 +36,7 @@ MARKET_FILES_PATH <- "../All_Sample_Files/Market_Files"
 # Path to PCT Codes
 PCT_LIST_PATH <- "../Supporting_Files/Q1_2025_MVI_PCT_Code_List_022125.csv" # UPDATE
 
+# Path to Raw Data from CMS
 .RAW_DATA_PATH <- "\\\\pm1/35-794/Quantitative/Sampling-Weighting/Files from CMS/{Q}" %>% f_str()
 
 # ------------------------------------------------------------------------------

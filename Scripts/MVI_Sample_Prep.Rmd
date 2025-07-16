@@ -43,8 +43,10 @@ Diagnostic_WB <- createWorkbook() # Create Diagnostic workbook
 
 ## Loading in Raw Data
 
+We initially set bypass_missing_folders = F because we want to make sure every market we expend is there. If ICC or IDC are the only ones that are missing, then you are okay to set it to TRUE since we have expected those to be missing in the past few quarters. If OPs misnamed a folder in the `Files_From_CMS` directory. You should update the `Country_Info` sheet in the template so that the `Country_Name_CMS` variable is aligned with the folder name they used.
+
 ```{r "Load in the data"}
-MVI_Sample <- load_MVI_raw_data(bypass_missing_folders = T)
+MVI_Sample <- load_MVI_raw_data(bypass_missing_folders = FALSE) 
 
 # Save the raw sample data to a temporary folder so if you close R, you don't have to reload the raw data. Just load this file.
 save(MVI_Sample, file = f_str("../Temporary_Data/{MVIQ}_Raw_Sample_{Sys.Date()}.Rdata"))
@@ -136,7 +138,7 @@ NOTE YOU WILL ONLY KNOW IF YOU NEED TO DO THIS AFTER YOU SEND THE FIRST DIAGNOST
 
 These are used for diagnostics and sent to OPS and PM later on
 
- - Scan though them and make sure the sample requested vs sample received is not drastically different. Or at least make sure the difference is at least consistent across all cells in the market.
+ - Scan though them and make sure the sample requested vs sample received is not drastically different (>30%). Or at least make sure the difference is at least consistent across all cells in the market.
 
 ```{r Set up Summary Tables}
 # Set up Cell Level summary table
@@ -223,6 +225,8 @@ add_and_write_sheet(Diagnostic_WB, "Spend_Summary (Pre-Removals)", spend_summary
 ```
 
 ### Tenure Check and Removal
+
+I have only ever seen the tenure flagged in Belgium (Country 41), and it usually somewhere between 100-800 people. These removals are normal. If anyone from a different market is flagged, make sure to call it out in the email.
 
 ```{r Tenure Removal}
 to_remove_tenure <- MVI_Sample %>% 
@@ -580,7 +584,7 @@ MVI_Sample_no_dups <-  MVI_Sample %>%
 ```{r Removed Dupes}
 to_remove_amex_id_dupes <- anti_join(amex_id_dups, MVI_Sample_no_dups, by = "Unique_Record_Identifier15")
 
-to_remove_amex_id_dupes_summary <- to_remove_amex_id_dupes %>% 
+to_remove_amex_id_dupes_summary <- to_remove_amex_id_dupes %>% ungroup()
   count(NA_Country_Code, NA_Language_Index, File_Ext, name = "Amex_ID_dupes")
 
 # Write to excel to send to OPS Manager
@@ -909,7 +913,7 @@ MVI_final %>% write_csv(f_str("../All_Sample_Files/{MVIQ}_Checking_{Sys.Date()}.
 # You can just reload in the data without rerunning the whole script
 
 last_save_date <- '2023-10-03' # last time you saved the mvi_final dataset
-# load("../Temporary_Data/{MVIQ}_Checking_{last_save_date}.Rdata")
+# load(f_str("../Temporary_Data/{MVIQ}_Checking_{last_save_date}.Rdata"))
 ```
 
 ### STOP HERE: SEND FILES TO OPS {style="color: red"}
@@ -988,3 +992,4 @@ MVI_final %>%
 ```
 
 
+Now that you are done, remember to Knit to html -- this will rerun the code and create a log of everything.

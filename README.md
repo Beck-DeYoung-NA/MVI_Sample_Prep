@@ -2,10 +2,13 @@
 
 ## Table of Contents
 
--   [Files and Information needed before sample prep](#files-and-information-needed-before-sample-prep-)
--   [Folder Strcture](#folder-strcture)
--   [Prepartory Steps to do each Quarter](#prepartory-steps-to-do-each-quarter)
-    -   [Creating Sample_Prep_Helper_QUARTER.xlsx](#creating-sample_prep_helper_quarterxlsx)
+- [MVI Sample Prep Documentation](#mvi-sample-prep-documentation)
+  - [Table of Contents](#table-of-contents)
+    - [Files and Information needed before sample prep ](#files-and-information-needed-before-sample-prep-)
+- [Folder Strcture  ](#folder-strcture--)
+- [Prepartory Steps to do each Quarter {#prepartory-steps-to-do-each-quarter}](#prepartory-steps-to-do-each-quarter-prepartory-steps-to-do-each-quarter)
+  - [Creating Sample\_Prep\_Helper\_QUARTER.xlsx](#creating-sample_prep_helper_quarterxlsx)
+  - [Run The Script](#run-the-script)
 
 ### Files and Information needed before sample prep <a name="files_needed"></a>
 
@@ -17,7 +20,7 @@
     -   *Files From CMS*: `\\pm1\34-716\Quantitative\Sampling-Weighting\Files from CMS\QUARTER`
 -   Made by Rocco V. (in L Drive). Note that we usually use the weights and PCT list for the previous quarter because we get the AIF file after sample prep. So in Q3, you are normally using the Q2 weights and AIF file. Confirm with Rocco or Jim beforehand. 
     -   *Weighting Framework* : `L:\Amex.219\Weights`
-    -   *PCT List*: `L:\Amex.219\AIF Files\PCT Code Lists` . Make sure it's the csv version Rocco creates.
+    -   *PCT List*: `L:\Amex.219\AIF Files\PCT Code Lists` 
     
 # Folder Strcture  <a name="folder-structure"></a>
 -   Here **QUARTER** is referencing the current quarter and year. For example, for Q1 in 2023, **QUARTER** = *MVIQ123*
@@ -95,14 +98,15 @@
         to make their checks. Instructions for doing this are in the
         `MVI_Sample_Prep.Rmd` script when you create the csv.
     -   **Market_Files** - Market Level Output Files
--   **From_OPs** - Any files from OPs.
-    -   *MVI Qualtrics Instruction.xlsm* - This workbork is provided by
-        OPs. It provides variable naming information, and values for
-        created values. When recieved, it should be saved into this
-        folder.
-    -   *Product Master List.xlsx* - The most up to date PML. The
-        information is copied into a helper file later.
--   **Supporting_Files** - Weighting and PCT Lists from Analytics
+-   **Supporting_Files** - Contains files that are used to support the sample prep
+    -   *MVI Qualtrics Instruction.xlsm* - Contains information on how
+        to prepare the sample, variable naming, and CV product codes.
+    -   *CV_Reporting_Name Labels.xlsx* - Contains proper reporting names
+        for products.
+    -   *Product Master List* - Contains the PML for the current quarter
+        in the format we need it in.
+    -   *File Names for COE* - Contains the file names for each country
+        in the format we need them in.
     -   *Weighting Framework* - Contains tenure and spend splits for
         weighting segments
     -   *PCT List Final* - Created by Rocco from AIF file
@@ -173,7 +177,7 @@ This sheet is provided by OPs.
 
 6.  *CV_Reporting_Names*
 
-Just copy and paste the information in from the `From Ops` folder. This file usually changes at the start of each year. 
+Just copy and paste the information in from the `From Ops` folder. This file usually changes at the start of each year. Check if the headers are different. If they are, don't overwrite the headers in the template.
 
 7.  *CV_Product_Codes*
 
@@ -199,12 +203,13 @@ This sheet is provided by OPs.
 This is copied directly from the *Weighting Segment for Sample* sheet of
 the `Weighting Framework` excel sheet. 
 - Copy columns F-J (Wgt' Bucket-Spend) and paste as values.
-- Try not to override the column headers. R sets them back up, but try to keep them as they were in the template.
+- Do not override the headers
 - You can copy the SBS weights too if you do not want to find the end of the MVI weights. R will automatically filter for the MVI weights.
 
 
 ## Run The Script
 
 - Open `MVI_Sample_Prep.Rproj`
+- Open `MVI_Config.R` and make the necessary changes to file paths and dates
 - Open `MVI_Sample_Prep.Rmd`
 - Follow the instructions inside the script
